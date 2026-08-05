@@ -4,7 +4,7 @@ import pytest
 from src.core.models import (
     ProductAnalysis, ImagePrompts, GeneratedImage,
     ReviewReport, ComplianceReport, CoordinatorDecision,
-    AgentMeta, Message, MarketingAngles,
+    AgentMeta, Message, MarketingAngles, ScenePrompt,
 )
 
 
@@ -43,7 +43,7 @@ class TestImagePrompts:
 
     def test_serialization(self):
         p = ImagePrompts()
-        p.scene_images.append({"prompt": "test", "platform": "taobao"})
+        p.scene_images.append(ScenePrompt(prompt="test", platform="taobao"))
         d = p.model_dump()
         assert len(d["scene_images"]) == 1
         assert d["scene_images"][0]["prompt"] == "test"

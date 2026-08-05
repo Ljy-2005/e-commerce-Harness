@@ -11,11 +11,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.core.state import SessionState
 from src.core.config import is_mock_mode
 from src.core.tenant import TenantContext, get_tenant_registry, set_current_tenant
+from src.core.auth import AuthMiddleware
+from src.core.logging_config import get_logger
 from src.providers import get_provider_registry
 from src.agents.registry import get_agent_registry, AgentRegistry
 from src.chat.session import SessionManager
 from src.chat.engine import ChatEngine
 from src.chat.broadcaster import Broadcaster
+
+logger = get_logger(__name__)
 
 # ── 全局组件 ──
 _provider_registry = get_provider_registry()
@@ -29,21 +33,27 @@ async def lifespan(app: FastAPI):
     """启动时加载 Agent 配置"""
     await _agent_registry.load_from_config(_provider_registry)
     names = _agent_registry.list_agent_names()
-    print(f"[Harness] 已注册 {len(names)} 个 Agent: {', '.join(names)}")
-    print(f"[Harness] Mock Mode: {is_mock_mode()}")
+    mock_mode = is_mock_mode()
+    logger.info("Agent 注册完成", extra={"count": len(names), "names": ", ".join(names)})
+    logger.info("运行模式", extra={"mock_mode": mock_mode, "tenants": len(get_tenant_registry().list_ids())})
+    logger.info("API Key 鉴权", extra={"enabled": bool(os.getenv("ECOMM_API_KEY"))})
     yield
+    logger.info("Harness 关闭")
 
 
 app = FastAPI(
     title="E-Commerce Harness",
     description="群聊式多智能体电商商品图生成系统",
-    version="0.1.0",
+    version="0.2.0",
     lifespan=lifespan,
 )
 
 # CORS
 _origins = os.getenv("ECOMM_CORS_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",")
 app.add_middleware(CORSMiddleware, allow_origins=_origins, allow_methods=["*"], allow_headers=["*"])
+
+# API Key 鉴权
+app.add_middleware(AuthMiddleware)
 
 
 # ── REST API ──
@@ -143,14 +153,18 @@ async def create_session(
         raise HTTPException(400, "请至少上传 1 张图片")
 
     from src.harness.input_pipeline import ImageValidator
+    from src.harness.image_preprocessor import ImagePreprocessor
     validator = ImageValidator()
+    preprocessor = ImagePreprocessor(max_pixels=2048, quality=85)
 
     images = []
     validation_errors = []
+    preprocess_stats = {"total": 0, "resized": 0, "compressed": 0}
+
     for f in files[:10]:
         content = await f.read()
 
-        # 输入验证：格式/大小/非空
+        # 1. 格式验证
         class _FakeImage:
             def __init__(self):
                 self.source_path = f.filename or "upload"
@@ -163,7 +177,19 @@ async def create_session(
             validation_errors.extend([f"[{f.filename}] {e}" for e in result.errors])
             continue
 
-        b64 = base64.b64encode(content).decode("utf-8")
+        # 2. 图片预处理（resize/compress/format-normalize）
+        pre = preprocessor.process(content, source_name=f.filename or "upload")
+        if pre.error:
+            validation_errors.append(f"[{f.filename}] {pre.error}")
+            continue
+
+        preprocess_stats["total"] += 1
+        if pre.resized:
+            preprocess_stats["resized"] += 1
+        if pre.compressed:
+            preprocess_stats["compressed"] += 1
+
+        b64 = base64.b64encode(pre.data).decode("utf-8")
         images.append(b64)
 
     if not images and validation_errors:
@@ -191,6 +217,7 @@ async def create_session(
         "session_id": session["session_id"],
         "status": session["status"],
         "message": f"会话已创建，{len(images)} 张图片已上传",
+        "preprocess": preprocess_stats,
     }
 
 
