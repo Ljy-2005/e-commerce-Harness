@@ -2,12 +2,14 @@
 
 import asyncio
 import time
-import uuid
 from abc import ABC, abstractmethod
 
 from src.harness.retry import with_retry, RetryConfig
 from src.harness.timeout import execute_with_timeout
 from src.core.models import Message
+from src.core.logging_config import get_logger
+
+_base_logger = get_logger(__name__)
 
 
 # ── 全局 Harness 组件 ──
@@ -152,8 +154,8 @@ class BaseAgent(ABC):
                 session.setdefault("_warnings", []).append(
                     f"[Cost] {self.meta_name}: 预算已用 {tracker.total_cost:.2f}/{tracker.budget_usd:.2f}"
                 )
-        except Exception:
-            pass  # 成本追踪失败不影响主流程
+        except Exception as e:
+            _base_logger.warning("成本追踪失败 (agent=%s): %s", self.meta_name, e, exc_info=True)
 
     @abstractmethod
     async def _execute_impl(self, task_brief: str, session) -> dict:

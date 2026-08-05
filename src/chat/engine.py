@@ -12,6 +12,9 @@ from src.chat.broadcaster import Broadcaster
 from src.harness.context_manager import ContextManager, WindowAction
 from src.harness.audit_logger import AuditLogger
 from src.harness.output_pipeline import OutputPipeline
+from src.core.logging_config import get_logger
+
+_engine_logger = get_logger(__name__)
 
 
 class ChatEngine:
@@ -90,8 +93,8 @@ class ChatEngine:
                 session["messages"].append(coord_msg)
                 if self.broadcaster:
                     await self.broadcaster.broadcast(session_id, coord_msg)
-        except Exception:
-            pass  # 记忆召回失败不影响主流程
+        except Exception as e:
+            _engine_logger.warning("记忆召回失败，不影响主流程: %s", e, exc_info=True)
 
         # 将记忆上下文注入 Coordinator
         coordinator.set_memory_context(session.get("_memory_context"))
@@ -113,8 +116,8 @@ class ChatEngine:
                 try:
                     from src.storage.checkpoint import save_checkpoint
                     await save_checkpoint(session_id, dict(session))
-                except Exception:
-                    pass
+                except Exception as e:
+                    _engine_logger.warning("压缩前 checkpoint 保存失败: %s", e, exc_info=True)
             if ctx_report.action == WindowAction.COMPACT:
                 compacted, summary = ctx_mgr.compact(session["messages"])
                 session["messages"] = compacted
@@ -272,8 +275,8 @@ class ChatEngine:
                         status="ok" if "error" not in result else "failed",
                         error=result.get("error", ""),
                     )
-                except Exception:
-                    pass  # 审计不阻塞主流程
+                except Exception as e:
+                    _engine_logger.warning("审计日志写入失败: %s", e, exc_info=True)
 
                 # 6. 更新 artifacts
                 self._update_artifacts(session, agent_name, result)
@@ -464,8 +467,8 @@ class ChatEngine:
                 session["messages"].append(ab_msg)
                 if self.broadcaster:
                     await self.broadcaster.broadcast(session_id, ab_msg)
-            except Exception:
-                pass  # A/B 测试失败不影响主流程
+            except Exception as e:
+                _engine_logger.warning("A/B 测试执行失败: %s", e, exc_info=True)
 
         if not completed:
             session["status"] = RunStatus.FAILED.value
@@ -494,8 +497,8 @@ class ChatEngine:
                     review=artifacts.get("review", {}),
                     compliance=artifacts.get("compliance"),
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                _engine_logger.warning("成功会话记忆记录失败: %s", e, exc_info=True)
 
         await self.sessions.update(session_id, session)
         return session

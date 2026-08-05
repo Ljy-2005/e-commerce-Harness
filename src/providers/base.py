@@ -46,3 +46,11 @@ class BaseImageProvider(ABC):
     ) -> dict:
         """生成图片，返回 {"image_url": str, "base64_data": str, "cost_usd": float}"""
         ...
+
+    @staticmethod
+    def _parse_size(size: str) -> tuple[int, int]:
+        """解析尺寸字符串 "WxH" → (width, height)，所有 Image Provider 共用"""
+        if "x" in size:
+            w_str, h_str = size.lower().replace("x", " ").split()
+            return int(w_str), int(h_str)
+        return 1024, 1024

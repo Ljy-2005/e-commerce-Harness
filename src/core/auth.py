@@ -39,8 +39,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
         api_key = request.headers.get("X-API-Key", "")
         if not api_key:
             auth_header = request.headers.get("Authorization", "")
-            if auth_header.startswith("Bearer "):
-                api_key = auth_header[7:]
+            if auth_header.strip().lower().startswith("bearer "):
+                api_key = auth_header[7:].strip()
 
         if not api_key:
             return JSONResponse(
@@ -68,6 +68,11 @@ def require_api_key(request: Request):
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
             api_key = auth_header[7:]
+
+    if not api_key:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.strip().lower().startswith("bearer "):
+            api_key = auth_header[7:].strip()
 
     if not api_key or api_key != expected_key:
         raise HTTPException(401, "Missing or invalid API Key")

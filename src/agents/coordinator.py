@@ -3,6 +3,9 @@
 from src.agents.base import BaseAgent
 from src.core.models import CoordinatorDecision, Message
 from src.core.config import load_yaml
+from src.core.logging_config import get_logger
+
+_coord_logger = get_logger(__name__)
 
 
 class CoordinatorAgent(BaseAgent):
@@ -69,8 +72,8 @@ class CoordinatorAgent(BaseAgent):
                     if llm_decision["action"] == "invite":
                         self._workflow_index += 1
                     return llm_decision
-            except Exception:
-                pass  # LLM 调用失败，回退 Mock
+            except Exception as e:
+                _coord_logger.warning("Coordinator LLM 调用失败，回退 Mock: %s", e, exc_info=True)
 
         return self._mock_decision()
 

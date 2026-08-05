@@ -36,11 +36,12 @@ class OpenAILLMProvider(BaseLLMProvider):
                 json=body,
             )
             if resp.status_code != 200:
-                return {"error": f"OpenAI API error: {resp.status_code}", "detail": resp.text[:500]}
+                return {"error": f"OpenAI API error: {resp.status_code}"}
 
             data = resp.json()
             content_str = data["choices"][0]["message"]["content"]
-            tokens = data.get("usage", {}).get("total_tokens", 0)
+            usage = data.get("usage", {})
+            tokens = usage.get("total_tokens", 0)
 
             # Parse JSON if json_mode
             if json_mode:
@@ -54,7 +55,13 @@ class OpenAILLMProvider(BaseLLMProvider):
             return {
                 "content": content,
                 "tokens_used": tokens,
-                "cost_usd": self._estimate_cost(model, tokens),
+                "tokens_in": usage.get("prompt_tokens", 0),
+                "tokens_out": usage.get("completion_tokens", 0),
+                "cost_usd": self._estimate_cost(
+                    model,
+                    usage.get("prompt_tokens", 0),
+                    usage.get("completion_tokens", 0),
+                ),
             }
 
     async def chat_with_vision(self, messages: list[dict], model: str = "gpt-4o") -> dict:
@@ -76,11 +83,11 @@ class OpenAILLMProvider(BaseLLMProvider):
                 json=body,
             )
             if resp.status_code != 200:
-                return {"error": f"OpenAI API error: {resp.status_code}", "detail": resp.text[:500]}
+                return {"error": f"OpenAI API error: {resp.status_code}"}
 
             data = resp.json()
             content_str = data["choices"][0]["message"]["content"]
-            tokens = data.get("usage", {}).get("total_tokens", 0)
+            usage = data.get("usage", {})
 
             # Try parsing as JSON
             try:
@@ -90,19 +97,29 @@ class OpenAILLMProvider(BaseLLMProvider):
 
             return {
                 "content": content,
-                "tokens_used": tokens,
-                "cost_usd": self._estimate_cost(model, tokens),
+                "tokens_used": usage.get("total_tokens", 0),
+                "tokens_in": usage.get("prompt_tokens", 0),
+                "tokens_out": usage.get("completion_tokens", 0),
+                "cost_usd": self._estimate_cost(
+                    model,
+                    usage.get("prompt_tokens", 0),
+                    usage.get("completion_tokens", 0),
+                ),
             }
 
-    def _estimate_cost(self, model: str, tokens: int) -> float:
-        # input price per 1M tokens (output is ~4x for most models)
-        prices = {
-            "gpt-4o": 2.5, "gpt-4o-mini": 0.15,
-            "gpt-4.1": 2.0, "gpt-4.1-mini": 0.40,
-            "o3": 10.0, "o4-mini": 1.10,
+    def _estimate_cost(self, model: str, prompt_tokens: int = 0, completion_tokens: int = 0) -> float:
+        """按 input/output 分别计费（USD/1M tokens）"""
+        prices: dict[str, tuple[float, float]] = {
+            "gpt-4o": (2.50, 10.00),
+            "gpt-4o-mini": (0.15, 0.60),
+            "gpt-4.1": (2.00, 8.00),
+            "gpt-4.1-mini": (0.40, 1.60),
+            "o3": (10.00, 40.00),
+            "o4-mini": (1.10, 4.40),
         }
-        price_per_m = prices.get(model, 2.5)
-        return round((tokens / 1_000_000) * price_per_m, 6)
+        in_price, out_price = prices.get(model, (2.50, 10.00))
+        cost = (prompt_tokens / 1_000_000) * in_price + (completion_tokens / 1_000_000) * out_price
+        return round(cost, 6)
 
 
 class OpenAIImageProvider(BaseImageProvider):
@@ -144,7 +161,7 @@ class OpenAIImageProvider(BaseImageProvider):
                 json=body,
             )
             if resp.status_code != 200:
-                return {"error": f"DALL-E API error: {resp.status_code}", "detail": resp.text[:500]}
+                return {"error": f"DALL-E API error: {resp.status_code}"}
 
             data = resp.json()
             image_url = data["data"][0].get("url", "")

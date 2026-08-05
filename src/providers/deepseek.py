@@ -58,9 +58,10 @@ class DeepSeekLLMProvider(BaseLLMProvider):
             }
 
     async def chat_with_vision(self, messages: list[dict], model: str = "") -> dict:
-        """DeepSeek 不支持 Vision，返回标准错误结构"""
+        """DeepSeek 不支持 Vision，返回顶层错误结构"""
         return {
-            "content": {"error": "DeepSeek 不支持视觉能力，请使用 OpenAI 或其他 Vision Provider"},
+            "error": "DeepSeek 不支持视觉能力，请使用 OpenAI 或其他 Vision Provider",
+            "content": {},
             "tokens_used": 0,
             "cost_usd": 0.0,
         }

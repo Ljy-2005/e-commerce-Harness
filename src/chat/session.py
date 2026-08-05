@@ -6,6 +6,9 @@ from typing import Optional
 
 from src.core.state import SessionState, RunStatus
 from src.core.models import Message
+from src.core.logging_config import get_logger
+
+_session_logger = get_logger(__name__)
 
 
 class SessionManager:
@@ -50,8 +53,14 @@ class SessionManager:
         self._sessions[session_id] = state
         return state
 
-    def get(self, session_id: str) -> Optional[SessionState]:
-        return self._sessions.get(session_id)
+    def get(self, session_id: str, tenant_id: str = "") -> Optional[SessionState]:
+        """获取会话。若指定 tenant_id，则校验租户归属（不匹配返回 None）"""
+        session = self._sessions.get(session_id)
+        if session is None:
+            return None
+        if tenant_id and session.get("tenant_id") != tenant_id:
+            return None  # 返回 None 而非 403，避免泄露会话存在性
+        return session
 
     async def update(self, session_id: str, state: SessionState):
         state["updated_at"] = datetime.now(timezone.utc)
@@ -60,16 +69,16 @@ class SessionManager:
         try:
             from src.storage.checkpoint import save_checkpoint
             await save_checkpoint(session_id, dict(state))
-        except Exception:
-            pass
+        except Exception as e:
+            _session_logger.error("checkpoint 保存失败 (session=%s): %s", session_id, e, exc_info=True)
 
     async def delete(self, session_id: str):
         self._sessions.pop(session_id, None)
         try:
             from src.storage.checkpoint import delete_checkpoint
             await delete_checkpoint(session_id)
-        except Exception:
-            pass
+        except Exception as e:
+            _session_logger.error("checkpoint 保存失败 (session=%s): %s", session_id, e, exc_info=True)
 
     def list_ids(self, tenant_id: str = "") -> list[str]:
         if tenant_id:

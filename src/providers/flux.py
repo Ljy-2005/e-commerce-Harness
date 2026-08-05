@@ -157,8 +157,4 @@ class FluxImageProvider(BaseImageProvider):
 
             return {"error": "Replicate prediction timed out"}
 
-    def _parse_size(self, size: str) -> tuple[int, int]:
-        if "x" in size:
-            parts = size.split("x")
-            return int(parts[0]), int(parts[1])
-        return 1024, 1024
+    # _parse_size 继承自 BaseImageProvider

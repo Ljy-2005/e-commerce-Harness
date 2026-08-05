@@ -2,8 +2,12 @@
 
 import asyncio
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
+
+# date 参数校验正则（YYYY-MM-DD）
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 class AuditLogger:
@@ -74,6 +78,8 @@ class AuditLogger:
         可按 session_id / agent_name / date 筛选
         """
         if date:
+            if not _DATE_RE.match(date):
+                return []  # 非法日期格式，返回空（不读任意文件）
             files = [self._dir / f"audit-{date}.jsonl"]
         else:
             files = sorted(self._dir.glob("audit-*.jsonl"), reverse=True)

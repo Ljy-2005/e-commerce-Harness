@@ -30,13 +30,36 @@ _broadcaster = Broadcaster()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """启动时加载 Agent 配置"""
+    """启动时加载 Agent 配置 + 恢复 checkpoint"""
     await _agent_registry.load_from_config(_provider_registry)
     names = _agent_registry.list_agent_names()
     mock_mode = is_mock_mode()
     logger.info("Agent 注册完成", extra={"count": len(names), "names": ", ".join(names)})
     logger.info("运行模式", extra={"mock_mode": mock_mode, "tenants": len(get_tenant_registry().list_ids())})
     logger.info("API Key 鉴权", extra={"enabled": bool(os.getenv("ECOMM_API_KEY"))})
+
+    # P3: 启动时恢复未完成的 checkpoint
+    try:
+        from src.storage.checkpoint import load_checkpoint
+        import glob as _glob
+        checkpoint_dir = Path(__file__).parent.parent / "data" / "checkpoints"
+        if checkpoint_dir.exists():
+            checkpoints = list(checkpoint_dir.glob("*.json"))
+            loaded = 0
+            for cp in checkpoints[:100]:  # 最多恢复 100 个
+                try:
+                    state = await load_checkpoint(cp.stem)
+                    if state and state.get("status") not in ("completed", "failed"):
+                        state["status"] = "failed"  # 标记为非正常结束
+                        _session_manager._sessions[state.get("session_id", cp.stem)] = state
+                        loaded += 1
+                except Exception:
+                    pass
+            if loaded:
+                logger.info("从 checkpoint 恢复会话", extra={"count": loaded})
+    except Exception:
+        pass  # 恢复失败不影响启动
+
     yield
     logger.info("Harness 关闭")
 
@@ -204,14 +227,30 @@ async def create_session(
         tenant_id=tenant.tenant_id,
     )
 
-    # 异步启动 ChatEngine
+    # 异步启动 ChatEngine（带错误回调）
     engine = ChatEngine(
         registry=_agent_registry,
         session_manager=_session_manager,
         broadcaster=_broadcaster,
     )
     import asyncio
-    asyncio.create_task(engine.run(session))
+    task = asyncio.create_task(engine.run(session))
+
+    def _on_engine_done(t: asyncio.Task):
+        try:
+            t.result()
+        except asyncio.CancelledError:
+            logger.info("引擎任务被取消", extra={"session_id": session["session_id"]})
+        except Exception as e:
+            logger.error("引擎执行异常", extra={"session_id": session["session_id"], "error": str(e)})
+            session["status"] = "failed"
+            session["messages"].append({
+                "id": uuid.uuid4().hex[:12], "turn": 0,
+                "timestamp": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
+                "role": "system", "sender": "系统", "action": "error",
+                "content": {"error": f"引擎异常: {str(e)[:200]}"},
+            })
+    task.add_done_callback(_on_engine_done)
 
     return {
         "session_id": session["session_id"],
@@ -222,9 +261,9 @@ async def create_session(
 
 
 @app.get("/api/sessions/{session_id}")
-async def get_session(session_id: str):
+async def get_session(session_id: str, x_tenant_id: str = Header("default", alias="X-Tenant-ID")):
     """获取会话完整状态"""
-    session = _session_manager.get(session_id)
+    session = _session_manager.get(session_id, tenant_id=x_tenant_id)
     if session is None:
         raise HTTPException(404, "会话不存在")
     return {
@@ -241,9 +280,9 @@ async def get_session(session_id: str):
 
 
 @app.get("/api/sessions/{session_id}/messages")
-async def get_messages(session_id: str, since: int = 0):
+async def get_messages(session_id: str, since: int = 0, x_tenant_id: str = Header("default", alias="X-Tenant-ID")):
     """增量拉取消息（since=turn 序号）"""
-    session = _session_manager.get(session_id)
+    session = _session_manager.get(session_id, tenant_id=x_tenant_id)
     if session is None:
         raise HTTPException(404, "会话不存在")
     messages = session.get("messages", [])
@@ -251,7 +290,7 @@ async def get_messages(session_id: str, since: int = 0):
 
 
 @app.post("/api/sessions/{session_id}/decision")
-async def human_decision(session_id: str, action: str = Form(...)):
+async def human_decision(session_id: str, action: str = Form(...), x_tenant_id: str = Header("default", alias="X-Tenant-ID")):
     """人工审查决策
 
     action: "approve" (接受当前结果) | "retry" (重新生成) | "reject" (拒绝并终止)
@@ -259,7 +298,7 @@ async def human_decision(session_id: str, action: str = Form(...)):
     if action not in ("approve", "retry", "reject"):
         raise HTTPException(400, "action 必须是 approve / retry / reject")
 
-    session = _session_manager.get(session_id)
+    session = _session_manager.get(session_id, tenant_id=x_tenant_id)
     if session is None:
         raise HTTPException(404, "会话不存在")
 
@@ -267,14 +306,19 @@ async def human_decision(session_id: str, action: str = Form(...)):
         raise HTTPException(400, f"会话未处于等待人工审查状态 (当前: {session.get('status')})")
 
     # 恢复执行
-    import asyncio
     engine = ChatEngine(
         registry=_agent_registry,
         session_manager=_session_manager,
         broadcaster=_broadcaster,
     )
 
-    result = await engine.resume_after_hitl(session, action)
+    try:
+        result = await engine.resume_after_hitl(session, action)
+    except Exception as e:
+        logger.error("HITL 恢复执行异常", extra={"session_id": session_id, "error": str(e)})
+        session["status"] = "failed"
+        await _session_manager.update(session_id, session)
+        raise HTTPException(500, f"恢复执行失败: {str(e)[:200]}")
 
     return {
         "session_id": session_id,
@@ -285,9 +329,9 @@ async def human_decision(session_id: str, action: str = Form(...)):
 
 
 @app.delete("/api/sessions/{session_id}")
-async def delete_session(session_id: str):
+async def delete_session(session_id: str, x_tenant_id: str = Header("default", alias="X-Tenant-ID")):
     """删除会话及产出物"""
-    session = _session_manager.get(session_id)
+    session = _session_manager.get(session_id, tenant_id=x_tenant_id)
     if session is None:
         raise HTTPException(404, "会话不存在")
     await _session_manager.delete(session_id)
@@ -312,7 +356,7 @@ async def memory_recall(category: str = "", limit: int = 5):
 
 
 @app.post("/api/sessions/{session_id}/ab-test")
-async def run_ab_test(session_id: str, x_tenant_id: str = Header("default", alias="X-Tenant-ID")):
+async def run_ab_test(session_id: str, x_tenant_id: str = Header("default", alias="X-Tenant-ID"), request: Request = None):
     """在已有会话中运行 A/B 测试（同角色多版本并行对比）
 
     默认对比 3 个模型变体（GPT-4o / DeepSeek / Qwen），
@@ -328,7 +372,7 @@ async def run_ab_test(session_id: str, x_tenant_id: str = Header("default", alia
         "review_count": 3
     }
     """
-    session = _session_manager.get(session_id)
+    session = _session_manager.get(session_id, tenant_id=x_tenant_id)
     if session is None:
         raise HTTPException(404, "会话不存在")
 
@@ -338,8 +382,17 @@ async def run_ab_test(session_id: str, x_tenant_id: str = Header("default", alia
 
     from src.harness.ab_testing import ABTestConfig, ABVariant, ABTestRunner, make_model_variants
 
-    # 可选：从 request body 获取自定义配置（简化处理，FastAPI 支持 JSON body）
-    ab_config = session.get("task", {}).get("ab_config", {})
+    # 解析 POST body（优先于 session 中预存的配置）
+    ab_config = {}
+    if request is not None:
+        try:
+            body = await request.json()
+            if isinstance(body, dict):
+                ab_config = body
+        except Exception:
+            pass  # 无 body 或非 JSON → 使用默认
+    if not ab_config:
+        ab_config = session.get("task", {}).get("ab_config", {})
     variants = ab_config.get("variants", [])
     if variants:
         config = ABTestConfig(

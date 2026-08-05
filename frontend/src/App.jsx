@@ -1,6 +1,7 @@
 import { Routes, Route, Link } from 'react-router-dom'
 import Home from './pages/Home'
 import Session from './pages/Session'
+import ErrorBoundary from './components/ErrorBoundary'
 
 export default function App() {
   return (
@@ -10,10 +11,12 @@ export default function App() {
         <span className="text-sm">群聊式多智能体商品图生成</span>
       </header>
       <main className="container mt-2">
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/session/:id" element={<Session />} />
-        </Routes>
+        <ErrorBoundary>
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/session/:id" element={<Session />} />
+          </Routes>
+        </ErrorBoundary>
       </main>
     </div>
   )
