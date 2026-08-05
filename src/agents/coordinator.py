@@ -79,6 +79,15 @@ class CoordinatorAgent(BaseAgent):
         mode = self._current_mode
 
         workflows = {
+            "ab_test": [
+                {"action": "invite", "agent_name": "商品分析员",
+                 "task_brief": "分析上传的商品图片"},
+                {"action": "invite", "agent_name": "品类专项分析员",
+                 "task_brief": "针对品类进行深度分析"},
+                # 提示词生成 → 由引擎 A/B Test Runner 接管，此处跳过
+                {"action": "done", "agent_name": "",
+                 "task_brief": "分析已完成，A/B 测试框架接管提示词对比"},
+            ],
             "serial": [
                 {"action": "invite", "agent_name": "商品分析员",
                  "task_brief": "分析上传的商品图片，识别品类、材质、卖点、目标人群和风格约束"},

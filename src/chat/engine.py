@@ -404,6 +404,69 @@ class ChatEngine:
                 session["artifacts"]["review"] = combined
             session.pop("_multi_reviews", None)
 
+        # ── P3: A/B 测试模式 — 提示词生成员多版本并行对比 ──
+        if mode == "ab_test":
+            try:
+                from src.harness.ab_testing import (
+                    ABTestConfig, ABVariant, ABTestRunner,
+                    make_model_variants,
+                )
+                ab_config = session.get("task", {}).get("ab_config")
+
+                if ab_config and isinstance(ab_config, dict):
+                    ab_variants = [
+                        ABVariant(**v) if isinstance(v, dict) else v
+                        for v in ab_config.get("variants", [])
+                    ]
+                    config = ABTestConfig(
+                        agent_name=ab_config.get("agent_name", "提示词生成员"),
+                        variants=ab_variants,
+                        task_brief=ab_config.get("task_brief", "基于分析结果生成提示词"),
+                        review_count=ab_config.get("review_count", 3),
+                        scoring_method=ab_config.get("scoring_method", "multi_reviewer"),
+                    )
+                else:
+                    # 默认：3 个模型变体对比
+                    config = make_model_variants(
+                        "提示词生成员",
+                        [
+                            ("v_gpt4o", "gpt-4o"),
+                            ("v_deepseek", "deepseek-chat"),
+                            ("v_qwen", "qwen-max"),
+                        ],
+                    )
+                    config.review_count = 3
+
+                runner = ABTestRunner(self.registry, session)
+                ab_result = await runner.run(config)
+                session["artifacts"]["ab_test"] = {
+                    "agent_name": config.agent_name,
+                    "winner": ab_result.winner.variant_id if ab_result.winner else "none",
+                    "winner_score": ab_result.winner.avg_score if ab_result.winner else 0,
+                    "runner_up": ab_result.runner_up.variant_id if ab_result.runner_up else "none",
+                    "ranking": [
+                        {"id": vr.variant_id, "label": vr.label, "score": vr.avg_score,
+                         "cost_usd": vr.cost_usd, "elapsed_ms": vr.elapsed_ms}
+                        for vr in ab_result.ranking
+                    ],
+                    "total_cost_usd": ab_result.total_cost_usd,
+                }
+
+                ab_msg = {
+                    "id": uuid.uuid4().hex[:12],
+                    "turn": session.get("turn_count", 0) + 1,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "role": "system",
+                    "sender": "A/B 测试",
+                    "action": "respond",
+                    "content": session["artifacts"]["ab_test"],
+                }
+                session["messages"].append(ab_msg)
+                if self.broadcaster:
+                    await self.broadcaster.broadcast(session_id, ab_msg)
+            except Exception:
+                pass  # A/B 测试失败不影响主流程
+
         if not completed:
             session["status"] = RunStatus.FAILED.value
             session["messages"].append({

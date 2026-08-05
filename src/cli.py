@@ -23,7 +23,7 @@ def run(
     platform: str = typer.Option("taobao", help="目标电商平台"),
     product_info: str = typer.Option("", help="商品补充信息"),
     category: str = typer.Option("", help="品类提示（保健品/化妆品/3C等）"),
-    mode: str = typer.Option("serial", help="协作模式: serial / ab_generate / debate / vote"),
+    mode: str = typer.Option("serial", help="协作模式: serial / ab_generate / debate / vote / ab_test"),
     max_turns: int = typer.Option(15, help="最大群聊轮次"),
 ):
     """上传单张商品图片，运行群聊生图流程"""
@@ -175,6 +175,13 @@ def _sync_run(image_path: str, platform: str = "taobao", product_info: str = "",
             passed = "PASS" if comp.get('passed') else "FAIL"
             typer.echo(f"\n[Compliance] {passed}")
             typer.echo(f"   risk: {comp.get('risk_level', 'unknown')}")
+        if artifacts.get("ab_test"):
+            ab = artifacts["ab_test"]
+            typer.echo(f"\n[A/B Test] agent: {ab['agent_name']}")
+            typer.echo(f"   winner: {ab['winner']} ({ab['winner_score']}/100)")
+            for r in ab.get("ranking", []):
+                marker = " 👑" if r["id"] == ab["winner"] else ""
+                typer.echo(f"   {r['id']} ({r['label']}): {r['score']}/100, ${r['cost_usd']:.4f}{marker}")
 
         # 输出群聊摘要
         messages = result.get("messages", [])

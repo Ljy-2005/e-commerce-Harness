@@ -284,6 +284,71 @@ async def memory_recall(category: str = "", limit: int = 5):
     return {"category": category, "total": len(entries), "entries": entries}
 
 
+@app.post("/api/sessions/{session_id}/ab-test")
+async def run_ab_test(session_id: str, x_tenant_id: str = Header("default", alias="X-Tenant-ID")):
+    """在已有会话中运行 A/B 测试（同角色多版本并行对比）
+
+    默认对比 3 个模型变体（GPT-4o / DeepSeek / Qwen），
+    也可通过 POST body 自定义变体列表。
+
+    Body (可选):
+    {
+        "agent_name": "提示词生成员",
+        "variants": [
+            {"variant_id": "v1", "label": "GPT-4o", "model_override": "gpt-4o"},
+            {"variant_id": "v2", "label": "DeepSeek", "model_override": "deepseek-chat"}
+        ],
+        "review_count": 3
+    }
+    """
+    session = _session_manager.get(session_id)
+    if session is None:
+        raise HTTPException(404, "会话不存在")
+
+    tenant = get_tenant_registry().get(x_tenant_id)
+    set_current_tenant(tenant)
+    session["tenant_id"] = tenant.tenant_id
+
+    from src.harness.ab_testing import ABTestConfig, ABVariant, ABTestRunner, make_model_variants
+
+    # 可选：从 request body 获取自定义配置（简化处理，FastAPI 支持 JSON body）
+    ab_config = session.get("task", {}).get("ab_config", {})
+    variants = ab_config.get("variants", [])
+    if variants:
+        config = ABTestConfig(
+            agent_name=ab_config.get("agent_name", "提示词生成员"),
+            variants=[ABVariant(**v) for v in variants],
+            task_brief=ab_config.get("task_brief", "基于分析结果生成提示词"),
+            review_count=ab_config.get("review_count", 3),
+            scoring_method=ab_config.get("scoring_method", "multi_reviewer"),
+        )
+    else:
+        config = make_model_variants(
+            "提示词生成员",
+            [
+                ("v_gpt4o", "gpt-4o"),
+                ("v_deepseek", "deepseek-chat"),
+                ("v_qwen", "qwen-max"),
+            ],
+        )
+        config.review_count = 3
+
+    runner = ABTestRunner(_agent_registry, session)
+    result = await runner.run(config)
+    session["artifacts"]["ab_test"] = {
+        "agent_name": config.agent_name,
+        "winner": result.winner.variant_id if result.winner else "none",
+        "winner_score": result.winner.avg_score if result.winner else 0,
+        "ranking": [
+            {"id": vr.variant_id, "label": vr.label, "score": vr.avg_score,
+             "cost_usd": vr.cost_usd, "elapsed_ms": vr.elapsed_ms}
+            for vr in result.ranking
+        ],
+        "total_cost_usd": result.total_cost_usd,
+    }
+    return session["artifacts"]["ab_test"]
+
+
 @app.get("/api/audit")
 async def audit_log(session_id: str = "", agent: str = "", date: str = ""):
     """查询审计日志"""
