@@ -1,0 +1,15 @@
+name: 合规审查员
+description: 检查生成图片是否符合广告法和平台规范（保健品/化妆品等敏感品类尤其重要）
+version: "1.0.0"
+requires: [vision]
+prompt: prompts/compliance.yaml
+timeout_ms: 30000
+retry:
+  max_retries: 3
+  backoff: exponential
+params:
+  - key: regulations
+    label: 适用法规
+    type: multi_select
+    options: [广告法, 食品安全法, 化妆品监督管理条例, 淘宝平台规范, Amazon政策]
+    default: [广告法, 淘宝平台规范]

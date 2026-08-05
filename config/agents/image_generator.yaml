@@ -1,0 +1,19 @@
+name: 生图员
+description: 调用图像生成 API 将提示词转化为商品展示图，支持多模型路由和自动 fallback
+version: "1.0.0"
+requires: [image]
+timeout_ms: 60000
+retry:
+  max_retries: 2
+  backoff: exponential
+params:
+  - key: size
+    label: 输出尺寸
+    type: select
+    options: [1024x1024, 1024x1536, 1536x1024]
+    default: 1024x1024
+  - key: variants
+    label: 每次生成张数
+    type: select
+    options: ["1", "2", "3", "4"]
+    default: "3"

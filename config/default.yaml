@@ -1,0 +1,40 @@
+# E-Commerce Harness 默认配置
+# 所有值均可通过环境变量覆盖（前缀 ECOMM_）
+
+app:
+  name: "ecommerce-harness"
+  version: "0.1.0"
+  log_level: "INFO"
+
+chat:
+  max_turns: 15             # 最大群聊轮次
+  session_ttl_hours: 24     # 会话过期时间
+
+harness:
+  retry:
+    max_retries: 3
+    base_delay_ms: 1000
+    max_delay_ms: 30000
+    backoff_multiplier: 2.0
+    jitter: true
+
+  circuit_breaker:
+    failure_threshold: 5
+    recovery_timeout_ms: 30000
+    half_open_max_requests: 3
+
+  timeout:
+    default_ms: 30000
+    vision_ms: 30000
+    text_ms: 15000
+    image_ms: 60000
+
+cost:
+  budget_usd: 10.0
+  warn_threshold: 0.8
+
+image_source:
+  max_file_size_mb: 20
+  allowed_formats: ["image/jpeg", "image/png", "image/webp"]
+  min_resolution: [200, 200]
+  max_resolution: [8000, 8000]

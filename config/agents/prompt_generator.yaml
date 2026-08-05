@@ -1,0 +1,20 @@
+name: 提示词生成员
+description: 将分析结果转化为各平台各模型的生图提示词（主图/场景图/社交图 + DALL-E/Seedream/FLUX/Midjourney 多版本）
+version: "1.0.0"
+requires: [text]
+prompt: prompts/prompt_gen.yaml
+timeout_ms: 15000
+retry:
+  max_retries: 3
+  backoff: exponential
+params:
+  - key: platforms
+    label: 目标平台
+    type: multi_select
+    options: [淘宝, 天猫, 京东, 拼多多, Amazon, Shopee, 小红书, 抖音]
+    default: [淘宝]
+  - key: image_count
+    label: 生成提示词数量
+    type: select
+    options: ["3", "5", "8"]
+    default: "3"

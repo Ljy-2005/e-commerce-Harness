@@ -1,0 +1,42 @@
+[project]
+name = "ecommerce-harness"
+version = "0.1.0"
+description = "群聊式多智能体电商商品图生成系统"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.10",
+    "pyyaml>=6.0",
+    "pydantic-settings>=2.7",
+    "structlog>=24.4",
+    "httpx>=0.28",
+    "tenacity>=9.0",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    "typer>=0.15",
+    "python-multipart>=0.0.20",
+    "aiofiles>=24.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.25",
+    "pytest-cov>=6.0",
+    "openai>=1.70",
+    "ruff>=0.9",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+    "slow: slow integration tests",
+    "real: tests that require real API keys",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]

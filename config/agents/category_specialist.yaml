@@ -1,0 +1,15 @@
+name: 品类专项分析员
+description: 按品类深度分析（保健品→合规维度+营销角度，化妆品→肤质+色号+质地）
+version: "1.0.0"
+requires: [vision]
+prompt: prompts/category.yaml
+timeout_ms: 30000
+retry:
+  max_retries: 3
+  backoff: exponential
+params:
+  - key: categories
+    label: 支持的品类
+    type: multi_select
+    options: [保健品, 化妆品, 食品, 3C数码, 服装]
+    default: [保健品]

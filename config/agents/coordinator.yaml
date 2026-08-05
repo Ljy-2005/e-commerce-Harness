@@ -1,0 +1,19 @@
+name: 中心决策者
+description: 读取群聊历史，动态决定邀请哪个 Agent 执行下一步任务
+version: "1.0.0"
+requires: [text]
+prompt: prompts/coordinator.yaml
+timeout_ms: 15000
+retry:
+  max_retries: 2
+  backoff: exponential
+params:
+  - key: workflow_style
+    label: 决策风格
+    type: select
+    options: [标准流程, 快速模式, 严格审查]
+    default: 标准流程
+  - key: max_agents_per_session
+    label: 单次会话最多邀请 Agent 数
+    type: text
+    default: "8"

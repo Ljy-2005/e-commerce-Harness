@@ -1,0 +1,19 @@
+name: 图像后处理员
+description: 对生成图片进行去背景和超分辨率增强处理，纯本地计算
+version: "1.0.0"
+requires: [local]
+timeout_ms: 30000
+retry:
+  max_retries: 1
+  backoff: exponential
+params:
+  - key: remove_bg
+    label: 去背景
+    type: select
+    options: ["是", "否"]
+    default: "是"
+  - key: enhance
+    label: 超分增强
+    type: select
+    options: ["是", "否"]
+    default: "是"

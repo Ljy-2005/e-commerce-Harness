@@ -1,0 +1,21 @@
+# 能力 → 模型映射
+# Agent 代码中不出现模型名，运行时根据此文件解析
+
+capabilities:
+  vision:
+    default: openai/gpt-4o
+    alternatives: [anthropic/claude-sonnet-4-20250514, qwen/qwen-vl-max]
+    fallback: [mock]
+  text:
+    default: openai/gpt-4o
+    alternatives: [anthropic/claude-sonnet-4-20250514, deepseek/deepseek-chat, qwen/qwen-max]
+    fallback: [mock]
+  image:
+    default: openai/dall-e-3
+    alternatives: [seedream/seedream-5.0, flux/flux.1-dev]
+    fallback: [mock]
+
+# 按 Agent 覆盖（可选，不配置则用 capabilities 默认值）
+agent_overrides:
+  提示词生成员:
+    text: deepseek/deepseek-chat

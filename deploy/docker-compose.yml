@@ -1,0 +1,18 @@
+version: "3.8"
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - ../.env
+    environment:
+      - ECOMM_MOCK_MODE=false
+      - ECOMM_LOG_LEVEL=INFO
+    volumes:
+      - ../data:/app/data
+      - ../output:/app/output
+    restart: unless-stopped
