@@ -79,3 +79,35 @@ a { color: #60a5fa; text-decoration: none; }
   text-align: center; cursor: pointer; transition: all .2s;
 }
 .drop-zone:hover, .drop-zone.active { border-color: #3b82f6; background: #1e293b; }
+
+/* spinner / loading / empty states */
+.spinner {
+  width: 24px; height: 24px; border: 3px solid #334155;
+  border-top-color: #3b82f6; border-radius: 50%;
+  animation: spin .6s linear infinite; margin: 0 auto;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.empty-state {
+  text-align: center; padding: 24px 16px; color: #64748b;
+}
+
+.card-error {
+  border-color: #ef4444 !important; background: #1e1b2e;
+}
+
+.badge-warn { background: #f59e0b22; color: #f59e0b; border: 1px solid #f59e0b44; }
+
+.btn-warning {
+  background: #f59e0b; color: #0f172a; border: none; border-radius: 6px;
+  padding: 8px 16px; cursor: pointer; font-size: 14px; font-weight: 500;
+}
+.btn-warning:hover { background: #d97706; }
+.btn-warning:disabled { opacity: .5; cursor: not-allowed; }
+
+.btn-danger {
+  background: #ef4444; color: #fff; border: none; border-radius: 6px;
+  padding: 8px 16px; cursor: pointer; font-size: 14px; font-weight: 500;
+}
+.btn-danger:hover { background: #dc2626; }
+.btn-danger:disabled { opacity: .5; cursor: not-allowed; }
