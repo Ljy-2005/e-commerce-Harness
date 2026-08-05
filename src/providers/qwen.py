@@ -36,7 +36,7 @@ class QwenLLMProvider(BaseLLMProvider):
                 json=body,
             )
             if resp.status_code != 200:
-                return {"error": f"Qwen API error: {resp.status_code}", "detail": resp.text[:500]}
+                return {"error": f"Qwen API error: {resp.status_code}"}
 
             data = resp.json()
             content_str = data["choices"][0]["message"]["content"]
@@ -79,7 +79,7 @@ class QwenLLMProvider(BaseLLMProvider):
                 json=body,
             )
             if resp.status_code != 200:
-                return {"error": f"Qwen VL API error: {resp.status_code}", "detail": resp.text[:500]}
+                return {"error": f"Qwen VL API error: {resp.status_code}"}
 
             data = resp.json()
             content_str = data["choices"][0]["message"]["content"]

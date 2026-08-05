@@ -37,7 +37,7 @@ class DeepSeekLLMProvider(BaseLLMProvider):
                 json=body,
             )
             if resp.status_code != 200:
-                return {"error": f"DeepSeek API error: {resp.status_code}", "detail": resp.text[:500]}
+                return {"error": f"DeepSeek API error: {resp.status_code}"}
 
             data = resp.json()
             content_str = data["choices"][0]["message"]["content"]
@@ -56,15 +56,6 @@ class DeepSeekLLMProvider(BaseLLMProvider):
                 "tokens_used": tokens,
                 "cost_usd": self._estimate_cost(tokens),
             }
-
-    async def chat_with_vision(self, messages: list[dict], model: str = "") -> dict:
-        """DeepSeek 不支持 Vision，返回顶层错误结构"""
-        return {
-            "error": "DeepSeek 不支持视觉能力，请使用 OpenAI 或其他 Vision Provider",
-            "content": {},
-            "tokens_used": 0,
-            "cost_usd": 0.0,
-        }
 
     def _estimate_cost(self, tokens: int) -> float:
         # DeepSeek-V3: ~¥1/百万 token ≈ $0.14/百万 token

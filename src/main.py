@@ -83,19 +83,25 @@ app.add_middleware(AuthMiddleware)
 
 @app.get("/health")
 async def health():
+    """公开健康检查 — 仅返回最小必要信息。详细状态见 /api/admin/status"""
+    return {
+        "status": "healthy",
+        "mock_mode": is_mock_mode(),
+    }
+
+
+@app.get("/api/admin/status")
+async def admin_status(x_tenant_id: str = Header("default", alias="X-Tenant-ID")):
+    """管理员端点：完整系统状态（需鉴权）"""
     from src.agents.base import get_circuit_breaker, get_rate_limiter
 
-    # 熔断器 + 速率限制器状态（单次遍历）
     circuits = {}
     rate_status = {}
     limiter = get_rate_limiter()
     for p in _provider_registry.list_available():
         p_name = p["name"]
         cb = get_circuit_breaker(p_name)
-        circuits[p_name] = {
-            "state": cb.state.value,
-            "allow_request": cb.allow_request(),
-        }
+        circuits[p_name] = {"state": cb.state.value, "allow_request": cb.allow_request()}
         rate_status[p_name] = limiter.remaining(p_name)
 
     return {
@@ -106,10 +112,7 @@ async def health():
             "rate_limiter": rate_status,
             "rate_limiter_rpm": limiter.default_rpm,
         },
-        "agents": [
-            {"name": m.name, "requires": m.requires}
-            for m in _agent_registry.list_all()
-        ],
+        "agents": [{"name": m.name, "requires": m.requires} for m in _agent_registry.list_all()],
         "providers": _provider_registry.list_available(),
         "tenants": {
             "total": len(get_tenant_registry().list_ids()),
@@ -444,6 +447,14 @@ async def audit_log(session_id: str = "", agent: str = "", date: str = ""):
 @app.websocket("/ws/sessions/{session_id}")
 async def ws_session(websocket: WebSocket, session_id: str):
     """实时群聊消息流"""
+    # WebSocket 鉴权：检查查询参数 ?api_key=... 或子协议
+    expected_key = os.getenv("ECOMM_API_KEY", "")
+    if expected_key:
+        api_key = websocket.query_params.get("api_key", "")
+        if api_key != expected_key:
+            await websocket.close(code=4001, reason="Missing or invalid API Key")
+            return
+
     session = _session_manager.get(session_id)
     if session is None:
         await websocket.close(code=4004, reason="会话不存在")

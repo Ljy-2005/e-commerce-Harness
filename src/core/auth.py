@@ -6,17 +6,23 @@
 """
 
 import os
+import time
+from collections import defaultdict
 from fastapi import HTTPException, Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
 
 # 白名单路径（无需鉴权）
-_PUBLIC_PREFIXES = ("/health", "/docs", "/redoc", "/openapi.json", "/ws/")
+_PUBLIC_PREFIXES = ("/health", "/docs", "/redoc", "/openapi.json")
+
+# 简易 IP 限流：每分钟最多 N 次失败尝试
+_AUTH_FAILURES: dict[str, list[float]] = defaultdict(list)
+_AUTH_MAX_FAILURES_PER_MINUTE = 10
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
-    """API Key 验证中间件
+    """API Key 验证中间件（带暴力破解防护）
 
     支持两种传 Key 方式：
     - Header: X-API-Key: <key>
@@ -43,18 +49,33 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 api_key = auth_header[7:].strip()
 
         if not api_key:
-            return JSONResponse(
-                status_code=401,
-                content={"error": "Missing API Key", "hint": "Set X-API-Key header or Authorization: Bearer <key>"},
-            )
+            return self._fail(request, "Missing API Key")
 
         if api_key != expected_key:
-            return JSONResponse(
-                status_code=401,
-                content={"error": "Invalid API Key"},
-            )
+            return self._fail(request, "Invalid API Key")
 
         return await call_next(request)
+
+    def _fail(self, request: Request, message: str) -> JSONResponse:
+        """记录失败并检查限流"""
+        ip = request.client.host if request.client else "unknown"
+        now = time.monotonic()
+
+        # 清理旧记录
+        cutoff = now - 60
+        _AUTH_FAILURES[ip] = [t for t in _AUTH_FAILURES[ip] if t > cutoff]
+        _AUTH_FAILURES[ip].append(now)
+
+        if len(_AUTH_FAILURES[ip]) > _AUTH_MAX_FAILURES_PER_MINUTE:
+            return JSONResponse(
+                status_code=429,
+                content={"error": "Too many authentication attempts. Retry later."},
+            )
+
+        return JSONResponse(
+            status_code=401,
+            content={"error": message, "hint": "Set X-API-Key header or Authorization: Bearer <key>"},
+        )
 
 
 def require_api_key(request: Request):

@@ -68,7 +68,7 @@ class SeedreamImageProvider(BaseImageProvider):
                 json=body,
             )
             if resp.status_code != 200:
-                return {"error": f"Seedream API error: {resp.status_code}", "detail": resp.text[:500]}
+                return {"error": f"Seedream API error: {resp.status_code}"}
 
             data = resp.json()
             result = data.get("data", {})
@@ -93,7 +93,7 @@ class SeedreamImageProvider(BaseImageProvider):
                 headers=headers, json=body,
             )
             if resp.status_code != 200:
-                return {"error": f"即梦AI API error: {resp.status_code}", "detail": resp.text[:500]}
+                return {"error": f"即梦AI API error: {resp.status_code}"}
 
             data = resp.json()
             results = data.get("data", [])

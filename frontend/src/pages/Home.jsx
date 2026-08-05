@@ -10,9 +10,12 @@ export default function Home() {
   const [category, setCategory] = useState('')
   const [loading, setLoading] = useState(false)
   const [agents, setAgents] = useState([])
+  const [agentsError, setAgentsError] = useState('')
 
   useEffect(() => {
-    getAgents().then(r => setAgents(r?.agents || []))
+    getAgents()
+      .then(r => setAgents(r?.agents || []))
+      .catch(err => setAgentsError(err.message || '无法加载 Agent 列表'))
   }, [])
 
   async function handleSubmit(e) {

@@ -45,7 +45,7 @@ class AnthropicLLMProvider(BaseLLMProvider):
                 json=body,
             )
             if resp.status_code != 200:
-                return {"error": f"Anthropic API error: {resp.status_code}", "detail": resp.text[:500]}
+                return {"error": f"Anthropic API error: {resp.status_code}"}
 
             data = resp.json()
             text = data["content"][0]["text"]

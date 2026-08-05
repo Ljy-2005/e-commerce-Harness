@@ -28,6 +28,17 @@ class OpenAILLMProvider(BaseLLMProvider):
         }
         if json_mode:
             body["response_format"] = {"type": "json_object"}
+            # OpenAI 要求消息中必须包含 "json" 关键词
+            has_json_hint = any(
+                "json" in str(m.get("content", "")).lower()
+                for m in messages
+            )
+            if not has_json_hint:
+                messages = [
+                    {"role": "system", "content": "You must respond with a valid JSON object."},
+                    *messages,
+                ]
+                body["messages"] = messages
 
         async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.post(

@@ -25,16 +25,26 @@ class TestHealthEndpoint:
         data = resp.json()
         assert data["status"] == "healthy"
 
-    def test_health_includes_agents(self):
+    def test_health_has_minimal_info(self):
+        """简化版 /health 仅返回 status + mock_mode（详细信息移至 /api/admin/status）"""
         resp = client.get("/health")
         data = resp.json()
-        assert "agents" in data
-        assert len(data["agents"]) >= 7
+        assert "status" in data
+        assert "mock_mode" in data
 
     def test_health_includes_mock_mode(self):
         resp = client.get("/health")
         data = resp.json()
         assert "mock_mode" in data
+
+    def test_admin_status_has_details(self):
+        """管理员端点返回完整详情"""
+        resp = client.get("/api/admin/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "agents" in data
+        assert "providers" in data
+        assert "tenants" in data
 
 
 class TestListAgents:

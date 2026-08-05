@@ -59,7 +59,7 @@ class FluxImageProvider(BaseImageProvider):
                 json=body,
             )
             if resp.status_code != 200:
-                return {"error": f"BFL API error: {resp.status_code}", "detail": resp.text[:500]}
+                return {"error": f"BFL API error: {resp.status_code}"}
 
             data = resp.json()
             return {
@@ -92,7 +92,7 @@ class FluxImageProvider(BaseImageProvider):
                 json=body,
             )
             if resp.status_code != 200:
-                return {"error": f"Fal.ai API error: {resp.status_code}", "detail": resp.text[:500]}
+                return {"error": f"Fal.ai API error: {resp.status_code}"}
 
             data = resp.json()
             images = data.get("images", [])
@@ -125,7 +125,7 @@ class FluxImageProvider(BaseImageProvider):
                 json=body,
             )
             if resp.status_code not in (200, 201):
-                return {"error": f"Replicate API error: {resp.status_code}", "detail": resp.text[:500]}
+                return {"error": f"Replicate API error: {resp.status_code}"}
 
             data = resp.json()
             prediction_id = data.get("id", "")

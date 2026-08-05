@@ -20,14 +20,18 @@ class BaseLLMProvider(ABC):
         """发送文本对话请求，返回 {"content": dict, "tokens_used": int, "cost_usd": float}"""
         ...
 
-    @abstractmethod
     async def chat_with_vision(
         self,
         messages: list[dict],
         model: str = "",
     ) -> dict:
-        """发送视觉对话请求（图片+文本）"""
-        ...
+        """发送视觉对话请求。不支持 Vision 的 Provider 返回顶层错误。"""
+        return {
+            "error": f"{self.name} 不支持视觉能力",
+            "content": {},
+            "tokens_used": 0,
+            "cost_usd": 0.0,
+        }
 
 
 class BaseImageProvider(ABC):
