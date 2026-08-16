@@ -5,6 +5,7 @@ import Sessions from './pages/Sessions'
 import Session from './pages/Session'
 import Workflows from './pages/Workflows'
 import WorkflowJob from './pages/WorkflowJob'
+import Batches from './pages/Batches'
 import Agents from './pages/Agents'
 import Settings from './pages/Settings'
 import Audit from './pages/Audit'
@@ -14,6 +15,7 @@ const NAV = [
   { to: '/', icon: '📊', label: '仪表盘', end: true },
   { to: '/sessions', icon: '💬', label: '会话任务' },
   { to: '/workflows', icon: '🧩', label: '工作流' },
+  { to: '/batches', icon: '📦', label: '批量任务' },
   { to: '/agents', icon: '🤖', label: 'Agent 配置' },
   { to: '/settings', icon: '⚙️', label: '系统设置' },
   { to: '/audit', icon: '📜', label: '审计日志' },
@@ -49,6 +51,7 @@ export default function App() {
               <Route path="/session/:id" element={<Session />} />
               <Route path="/workflows" element={<Workflows />} />
               <Route path="/workflows/:id" element={<WorkflowJob />} />
+              <Route path="/batches" element={<Batches />} />
               <Route path="/agents" element={<Agents />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="/audit" element={<Audit />} />

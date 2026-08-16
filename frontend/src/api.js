@@ -173,6 +173,43 @@ export async function decideWorkflow(jobId, action) {
   })
 }
 
+export async function createBatch(body) {
+  return request('/workflows/batches', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+export async function createBatchCsv(template, csvFile, mode = 'auto') {
+  const fd = new FormData()
+  fd.append('template_name', template)
+  fd.append('mode', mode)
+  fd.append('file', csvFile)
+  const res = await fetch(`${BASE}/workflows/batches`, { method: 'POST', body: fd })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.detail || `创建失败 (${res.status})`)
+  }
+  return res.json()
+}
+
+export async function getBatches() {
+  return request('/workflows/batches')
+}
+
+export async function getBatch(batchId) {
+  return request(`/workflows/batches/${batchId}`)
+}
+
+export async function controlBatch(batchId, action) {
+  return request(`/workflows/batches/${batchId}/control`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action }),
+  })
+}
+
 // ── WebSocket ──
 
 export function wsUrl(path) {

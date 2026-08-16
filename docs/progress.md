@@ -40,6 +40,7 @@
 | *（未提交）* | **前端重构·多页工作台** | 后端新增 4 端点（会话列表 / 设置汇总 / API Key 运行时持久化 / Agent 参数持久化）；前端从 2 页重构为侧边栏 7 页工作台：仪表盘（Provider/熔断/限流/租户总览）、会话列表+新建（5 种协作模式）、会话工作台（群聊直播按轮分组+产出物 tabs+图片网格+A/B 运行器）、Agent 配置页、系统设置页（10 项 API Key 管理）、审计日志、记忆库 |
 | *（未提交）* | **模型配置能力** | 修复模型名被注册表丢弃的缺陷（`resolve()` 返回的 model 未注入 Agent → 永远用 Provider 默认模型）；新增 `POST /api/settings/models` 端点（能力→模型映射持久化+热重载），设置页提供可视化编辑器（默认/备选/兜底 + 按 Agent 覆盖），Agent 页显示当前生效模型 |
 | *（未提交）* | **Workflow 编排层 M1** | 按 `docs/workflow-design.md` 实现：`src/workflow/` 六模块（YAML 模板 DSL / 极简表达式 / 工具注册表 / SQLite+事件溯源 / 状态机引擎 自动·手动挡+断点续跑+回跳重试+人工审批）；4 个内置模板（白底套装/场景套装/合规加固/自由群聊）；9 个 API 端点 + WS 事件流；前端工作流页（Skill 库画廊 + 画布 + 控制条）；54 个新测试 |
+| *（未提交）* | **Workflow M2 批量调度** | `src/workflow/batch.py`（BatchScheduler：并发窗口/单项自动重试2次/死信列表/暂停恢复取消/断点续跑，多 worker 世代计数器唤醒 + SQL 原子计数）；4 个批量端点（JSON/CSV 创建、列表、详情、控制含 retry_failed）；前端批量任务页（进度条/控制/死信重跑/逐项详情）；13 个新测试 |
 
 ### 2.2 功能模块完成度
 
@@ -57,7 +58,7 @@
 | 结构化日志 | ✅ 完成 | `get_logger()` + UTC 时间戳 + JSON adapter |
 | REST API | ✅ 完成 | 会话 CRUD + 列表 + 决策 + 消息 + 记忆 + 审计 + A/B 测试 + 设置（API Key / Agent / 模型映射持久化）+ 工作流（模板/作业/控制/决策） |
 | WebSocket | ✅ 完成 | 实时群聊流 + 工作流事件流（已补鉴权） |
-| Workflow 编排层 | ✅ M1 | `src/workflow/`：YAML 模板 DSL（6 类节点+group_chat）、极简表达式、SQLite+事件溯源、状态机（自动/手动挡、断点续跑、回跳重试、人工审批）、4 个内置模板；批量调度（M2）、风格复刻（M3）待实施 |
+| Workflow 编排层 | ✅ M1+M2 | `src/workflow/`：YAML 模板 DSL（6 类节点+group_chat）、极简表达式、SQLite+事件溯源、状态机（自动/手动挡、断点续跑、回跳重试、人工审批）、4 个内置模板；批量调度器（并发窗口/死信/控制）；风格复刻（M3）、连接器（M4）待实施 |
 | React 前端 | ✅ 完成 | 侧边栏 8 页工作台：仪表盘 / 会话 / **工作流（Skill 库+画布）** / Agent 配置 / 设置 / 审计 / 记忆 |
 | CLI | ✅ 完成 | `python -m src.cli run` |
 | Docker 部署 | ✅ 完成 | 多阶段构建 + 非 root 用户 + HEALTHCHECK + nginx |
@@ -75,13 +76,13 @@
 
 ### 2.4 测试覆盖
 
-- **34 个测试文件**，**328 个测试通过**（`pytest` 全量 Mock Mode）
+- **34 个测试文件**，**341 个测试通过**（`pytest` 全量 Mock Mode）
 - 覆盖范围：
   - `test_api/` — FastAPI 端点测试（含设置/会话列表/密钥持久化/模型映射 18 个新测试）
   - `test_agents/` — 8 个 Agent 单测
   - `test_chat/` — 引擎 / HITL / 反幻觉 / 模式
   - `test_harness/` — 熔断 / 限流 / 重试 / 超时 / 记忆 / 成本 / 集成 / 审计 / A-B / 图片预处理
-  - `test_workflow/` — 表达式 / 模板 DSL / 引擎（分支/跳过/回跳/恢复）/ 手动挡控制 / API（54 个新测试）
+  - `test_workflow/` — 表达式 / 模板 DSL / 引擎（分支/跳过/回跳/恢复）/ 手动挡控制 / **批量调度（并发/死信/控制/续跑）** / API（67 个测试）
   - `test_core/`、`test_providers/` — 模型 / Mock / 新 Provider / OpenAI
 
 ---
@@ -200,6 +201,7 @@ src/
 | 16 | "配置了 apikey 但没法设置 agent 用哪个模型" | 修复模型名被注册表丢弃（`resolve()` 结果未注入 Agent）+ 新增 `POST /api/settings/models` 端点 + 设置页模型映射编辑器 + Agent 页显示生效模型 |
 | 17 | "实际应用是否还涉及工作流的内容" + "模仿 OiiOii.ai 的工作流" + "先把详细设计文档写出来" | 调研 OiiOii 2.0 产品范式（智能画布/Skill 库/一键复刻/自动·手动挡），输出 `docs/workflow-design.md`（模板 DSL + 状态机引擎 + 批量调度 + 画布前端），待评审后实施 |
 | 18 | "按你的推荐来吧" | 实现 Workflow 编排层 M1：`src/workflow/` 六模块 + 4 模板 + 9 端点 + WS + 前端工作流页（画廊/画布），54 个新测试全绿 |
+| 19 | "看 progress.md 继续" | 实现 M2 批量调度：BatchScheduler（并发/死信/控制/续跑）+ 4 批量端点 + 前端批量页，13 个新测试全绿 |
 
 ### 5.2 关键决策点
 
@@ -238,6 +240,9 @@ src/
 **决策 11：M1 实施中的四个关键取舍**
 ① **信号竞态**：手动挡控制与人工决策可能先于引擎进入等待态到达——用 `wake_pending` 标志 + asyncio.Event 双保险，并在每步执行前从 SQLite 刷新步骤状态（外部 skip 立即可见）；② **TestClient 限制**：Starlette TestClient 的即弃事件循环不会推进端点上 `create_task` 的后台任务（生产 uvicorn 无此问题），API 测试改为测试循环驱动引擎 + `to_thread` 转发 HTTP；③ **回跳语义**：分支/retry 跳回已执行节点时重置其声明顺序之后的所有步骤并递增 `$ctx.retries`，重跑始终用模板快照；④ **测试隔离**：`JobStore` 支持自定义 `db_path`，测试不污染 `data/workflow.db`。
 
+**决策 12：M2 批量调度的三个工程问题**
+① **多 worker 唤醒**：并发 worker 共享一个事件对象会被互相覆盖导致信号丢失——改用世代计数器（`wake_generation` + 常驻事件 + clear/双检）让所有等待者同时醒来；② **计数原子性**：`done/failed` 用 SQL 原子递增（`done=done+?`），状态与计数分离，避免并发读改写竞态；③ **测试节流**：全局限流器（60rpm）把批量测试拖慢到分钟级，`tests/test_workflow` 注入独立高额限流器隔离（限流器本身已有专门测试）。
+
 ### 5.3 遗留的开放决策
 
 - **依赖方向**：`auth.py` 放 `core/` 还是迁至独立中间件层？（PRD D4 的"core 不依赖上层"原则 vs 现实实现）
@@ -245,7 +250,7 @@ src/
 - **`ABTestRunner` 的 model_override 语义**：`_run_variant` 目前以提示词注入方式传递模型覆盖（避免共享 state 竞态），真实 Provider 下并不会真正切换模型。真实模型对比需在 `BaseAgent.execute` 增加 model 参数（接口级改动），暂缓。
 - **前端构建产物体积**：单 chunk 589KB（recharts 占大头），可用 `manualChunks`/动态 import 拆包优化。
 - **设置页敏感操作**：`/api/settings/*` 写操作在 `ECOMM_API_KEY` 未配置时开放（开发模式），生产环境由 AuthMiddleware 全局保护。
-- **Workflow M2-M4 待实施**：批量调度器（`batch.py` + 批量页 + 死信重跑）、一键风格复刻（风格拆解员 Agent + 群聊插话）、审批 SLA 超时自动决策 + webhook/连接器 + 模板导入导出（见 `docs/workflow-design.md` §11）。
+- **Workflow M3-M4 待实施**：一键风格复刻（风格拆解员 Agent + 群聊插话）、审批 SLA 超时自动决策 + webhook/连接器 + 模板导入导出（见 `docs/workflow-design.md` §11）。
 - **MEDIUM/LOW 是否继续修**：18 MEDIUM（文档/工程化）+ 18 LOW（类型/清理）尚未启动，等待用户确认优先级。
 
 ---

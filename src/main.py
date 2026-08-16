@@ -22,6 +22,7 @@ from src.chat.engine import ChatEngine
 from src.chat.broadcaster import Broadcaster
 from src.workflow.job_store import JobStore
 from src.workflow.engine import WorkflowEngine
+from src.workflow.batch import BatchScheduler
 from src.workflow import templates as wf_templates
 from src.workflow.models import JobStatus, StepStatus
 
@@ -34,6 +35,7 @@ _session_manager = SessionManager()
 _broadcaster = Broadcaster()
 _workflow_store = JobStore()
 _workflow_engine = WorkflowEngine(_agent_registry, _workflow_store, _broadcaster)
+_batch_scheduler = BatchScheduler(_workflow_engine, _workflow_store)
 
 # ── API Key 元信息（设置页用） ──
 _API_KEY_META = [
@@ -862,6 +864,130 @@ async def workflow_decision(job_id: str, request: Request, x_tenant_id: str = He
         raise HTTPException(400, "请求体必须是 JSON")
     try:
         result = await _workflow_engine.decide_human(job_id, body.get("action", ""))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return result
+
+
+# ── 批量任务（M2） ──
+
+_CSV_HEADERS = ("product_info", "platform", "category_hint", "scene", "collaboration_mode")
+
+
+def _parse_batch_csv(raw: bytes) -> list[dict]:
+    """解析 CSV：product_info,platform,category_hint,scene,collaboration_mode"""
+    import csv
+    import io as _io
+
+    text = None
+    for enc in ("utf-8-sig", "gbk", "utf-8"):
+        try:
+            text = raw.decode(enc)
+            break
+        except UnicodeDecodeError:
+            continue
+    if text is None:
+        raise ValueError("CSV 编码无法识别（支持 utf-8/gbk）")
+
+    rows = list(csv.reader(_io.StringIO(text)))
+    if not rows:
+        raise ValueError("CSV 为空")
+    # 表头识别（可选）
+    start = 1 if rows[0][:2] == ["product_info", "platform"] else 0
+    items = []
+    for row in rows[start:]:
+        if not row or not any(c.strip() for c in row):
+            continue
+        item = {"product_info": (row[0] if len(row) > 0 else "").strip(),
+                "platform": (row[1] if len(row) > 1 else "").strip() or "taobao"}
+        if len(row) > 2 and row[2].strip():
+            item["category_hint"] = row[2].strip()
+        if len(row) > 3 and row[3].strip():
+            item["scene"] = row[3].strip()
+        if len(row) > 4 and row[4].strip():
+            item["collaboration_mode"] = row[4].strip()
+        # CSV 无图片列：注入合法 base64 占位符（Mock 模式完整可用；真实模式请用 JSON 传真实 base64）
+        item.setdefault("product_images", ["Y3N2"])  # b64("csv")
+        items.append(item)
+    if not items:
+        raise ValueError("CSV 没有有效数据行")
+    return items
+
+
+@app.post("/api/workflows/batches")
+async def create_batch(request: Request, x_tenant_id: str = Header("default", alias="X-Tenant-ID")):
+    """创建批量任务。
+
+    JSON 方式（application/json）:
+        {"template_name": "scene_suite", "mode": "auto", "max_concurrency": 3,
+         "items": [{"platform": "taobao", "product_info": "商品A"}, ...]}
+    CSV 方式（multipart/form-data）:
+        template_name + file（列: product_info,platform,category_hint,scene,collaboration_mode）
+    """
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type:
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(400, "请求体必须是 JSON")
+        template_name = body.get("template_name", "")
+        items = body.get("items", [])
+        mode = body.get("mode", "auto")
+        max_concurrency = body.get("max_concurrency", 3)
+        if not isinstance(items, list):
+            raise HTTPException(400, "items 必须是数组")
+    else:
+        try:
+            form = await request.form()
+        except Exception:
+            raise HTTPException(400, "仅支持 application/json 或 multipart/form-data（CSV）")
+        template_name = str(form.get("template_name", ""))
+        mode = str(form.get("mode", "auto"))
+        max_concurrency = form.get("max_concurrency", 3)
+        csv_file = form.get("file")
+        if csv_file is None:
+            raise HTTPException(400, "缺少 CSV 文件（file 字段）")
+        try:
+            items = _parse_batch_csv(await csv_file.read())
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+
+    try:
+        batch = await _batch_scheduler.submit(
+            template_name, items, tenant_id=x_tenant_id,
+            mode=mode, max_concurrency=max_concurrency,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return batch
+
+
+@app.get("/api/workflows/batches")
+async def list_batches(x_tenant_id: str = Header("default", alias="X-Tenant-ID")):
+    """批量任务列表"""
+    batches = await _workflow_store.list_batches(tenant_id=x_tenant_id, limit=100)
+    return {"batches": batches, "total": len(batches)}
+
+
+@app.get("/api/workflows/batches/{batch_id}")
+async def get_batch(batch_id: str, x_tenant_id: str = Header("default", alias="X-Tenant-ID")):
+    """批量任务详情（含逐项状态）"""
+    batch = await _workflow_store.get_batch(batch_id)
+    if batch is None or (x_tenant_id and batch["tenant_id"] != x_tenant_id):
+        raise HTTPException(404, "批次不存在")
+    items = await _workflow_store.get_batch_items(batch_id)
+    return {**batch, "items": items}
+
+
+@app.post("/api/workflows/batches/{batch_id}/control")
+async def control_batch(batch_id: str, request: Request, x_tenant_id: str = Header("default", alias="X-Tenant-ID")):
+    """批量控制：{action: pause|resume|cancel|retry_failed}"""
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "请求体必须是 JSON")
+    try:
+        result = await _batch_scheduler.control(batch_id, body.get("action", ""))
     except ValueError as e:
         raise HTTPException(400, str(e))
     return result

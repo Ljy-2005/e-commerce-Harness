@@ -53,6 +53,31 @@ CREATE TABLE IF NOT EXISTS events (
     created_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_events_job ON events(job_id, seq);
+CREATE TABLE IF NOT EXISTS batches (
+    batch_id TEXT PRIMARY KEY,
+    template_name TEXT NOT NULL,
+    tenant_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    max_concurrency INTEGER DEFAULT 3,
+    total INTEGER DEFAULT 0,
+    done INTEGER DEFAULT 0,
+    failed INTEGER DEFAULT 0,
+    created_at TEXT,
+    updated_at TEXT
+);
+CREATE TABLE IF NOT EXISTS batch_items (
+    batch_id TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    inputs_json TEXT,
+    job_id TEXT DEFAULT '',
+    status TEXT NOT NULL,
+    attempts INTEGER DEFAULT 0,
+    error TEXT DEFAULT '',
+    updated_at TEXT,
+    PRIMARY KEY (batch_id, seq)
+);
+CREATE INDEX IF NOT EXISTS idx_batch_items ON batch_items(batch_id, status);
 """
 
 
@@ -237,4 +262,141 @@ class JobStore:
                      "created_at": r["created_at"]}
                     for r in rows
                 ]
+        return await asyncio.to_thread(_do)
+
+    # ── batches（批量调度，M2） ──
+
+    async def create_batch(self, batch: dict) -> None:
+        def _do():
+            with _connect(self.db_path) as conn:
+                conn.execute(
+                    """INSERT OR REPLACE INTO batches
+                       (batch_id, template_name, tenant_id, status, mode, max_concurrency,
+                        total, done, failed, created_at, updated_at)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                    (batch["batch_id"], batch["template_name"], batch["tenant_id"],
+                     batch["status"], batch["mode"], batch.get("max_concurrency", 3),
+                     batch.get("total", 0), batch.get("done", 0), batch.get("failed", 0),
+                     _iso(batch.get("created_at")), _iso(batch.get("updated_at"))),
+                )
+        await asyncio.to_thread(_do)
+
+    async def get_batch(self, batch_id: str) -> Optional[dict]:
+        def _do():
+            with _connect(self.db_path) as conn:
+                row = conn.execute("SELECT * FROM batches WHERE batch_id=?", (batch_id,)).fetchone()
+                if not row:
+                    return None
+                return {
+                    "batch_id": row["batch_id"], "template_name": row["template_name"],
+                    "tenant_id": row["tenant_id"], "status": row["status"],
+                    "mode": row["mode"], "max_concurrency": row["max_concurrency"],
+                    "total": row["total"], "done": row["done"], "failed": row["failed"],
+                    "created_at": row["created_at"], "updated_at": row["updated_at"],
+                }
+        return await asyncio.to_thread(_do)
+
+    async def list_batches(self, tenant_id: str = "", limit: int = 50) -> list[dict]:
+        def _do():
+            with _connect(self.db_path) as conn:
+                if tenant_id:
+                    rows = conn.execute(
+                        "SELECT * FROM batches WHERE tenant_id=? ORDER BY created_at DESC LIMIT ?",
+                        (tenant_id, limit),
+                    ).fetchall()
+                else:
+                    rows = conn.execute(
+                        "SELECT * FROM batches ORDER BY created_at DESC LIMIT ?", (limit,)
+                    ).fetchall()
+                return [
+                    {
+                        "batch_id": r["batch_id"], "template_name": r["template_name"],
+                        "tenant_id": r["tenant_id"], "status": r["status"],
+                        "mode": r["mode"], "max_concurrency": r["max_concurrency"],
+                        "total": r["total"], "done": r["done"], "failed": r["failed"],
+                        "created_at": r["created_at"], "updated_at": r["updated_at"],
+                    }
+                    for r in rows
+                ]
+        return await asyncio.to_thread(_do)
+
+    async def update_batch_counts(self, batch_id: str, status: str,
+                                  done: int, failed: int) -> None:
+        def _do():
+            with _connect(self.db_path) as conn:
+                conn.execute(
+                    """UPDATE batches SET status=?, done=?, failed=?, updated_at=?
+                       WHERE batch_id=?""",
+                    (status, done, failed, datetime.now(timezone.utc).isoformat(), batch_id),
+                )
+        await asyncio.to_thread(_do)
+
+    async def set_batch_status(self, batch_id: str, status: str) -> None:
+        """只更新状态（计数由 increment_batch 原子维护）"""
+        def _do():
+            with _connect(self.db_path) as conn:
+                conn.execute(
+                    "UPDATE batches SET status=?, updated_at=? WHERE batch_id=?",
+                    (status, datetime.now(timezone.utc).isoformat(), batch_id),
+                )
+        await asyncio.to_thread(_do)
+
+    async def increment_batch(self, batch_id: str, done_delta: int = 0,
+                              failed_delta: int = 0) -> None:
+        """原子递增计数（并发 worker 安全）"""
+        def _do():
+            with _connect(self.db_path) as conn:
+                conn.execute(
+                    """UPDATE batches SET done=done+?, failed=failed+?, updated_at=?
+                       WHERE batch_id=?""",
+                    (done_delta, failed_delta, datetime.now(timezone.utc).isoformat(), batch_id),
+                )
+        await asyncio.to_thread(_do)
+
+    async def create_batch_items(self, items: list[dict]) -> None:
+        def _do():
+            with _connect(self.db_path) as conn:
+                for it in items:
+                    conn.execute(
+                        """INSERT OR REPLACE INTO batch_items
+                           (batch_id, seq, inputs_json, job_id, status, attempts, error, updated_at)
+                           VALUES (?,?,?,?,?,?,?,?)""",
+                        (it["batch_id"], it["seq"],
+                         json.dumps(it.get("inputs", {}), ensure_ascii=False),
+                         it.get("job_id", ""), it["status"], it.get("attempts", 0),
+                         it.get("error", ""), _iso(it.get("updated_at"))),
+                    )
+        await asyncio.to_thread(_do)
+
+    async def get_batch_items(self, batch_id: str) -> list[dict]:
+        def _do():
+            with _connect(self.db_path) as conn:
+                rows = conn.execute(
+                    "SELECT * FROM batch_items WHERE batch_id=? ORDER BY seq", (batch_id,)
+                ).fetchall()
+                return [
+                    {
+                        "batch_id": r["batch_id"], "seq": r["seq"],
+                        "inputs": json.loads(r["inputs_json"] or "{}"),
+                        "job_id": r["job_id"], "status": r["status"],
+                        "attempts": r["attempts"], "error": r["error"],
+                        "updated_at": r["updated_at"],
+                    }
+                    for r in rows
+                ]
+        return await asyncio.to_thread(_do)
+
+    async def update_batch_item(self, item: dict) -> None:
+        await self.create_batch_items([item])
+
+    async def reset_failed_items(self, batch_id: str) -> int:
+        """死信项重置为待执行（retry_failed），返回重置数量"""
+        def _do():
+            with _connect(self.db_path) as conn:
+                cur = conn.execute(
+                    """UPDATE batch_items SET status='pending', error='', job_id=''
+                       WHERE batch_id=? AND status='failed'""",
+                    (batch_id,),
+                )
+                return cur.rowcount
         return await asyncio.to_thread(_do)

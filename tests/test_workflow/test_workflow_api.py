@@ -17,6 +17,7 @@ import src.main as main_mod
 from src.main import app, _agent_registry
 from src.workflow.job_store import JobStore
 from src.workflow.engine import WorkflowEngine
+from src.workflow.batch import BatchScheduler
 
 
 def _valid_jpeg_bytes() -> bytes:
@@ -35,11 +36,12 @@ def _run_async(coro):
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    """替换 main.py 的全局 store/engine 为临时实例（测试隔离）"""
+    """替换 main.py 的全局 store/engine/scheduler 为临时实例（测试隔离）"""
     store = JobStore(db_path=tmp_path / "workflow_api.db")
     engine = WorkflowEngine(_agent_registry, store)
     monkeypatch.setattr(main_mod, "_workflow_store", store)
     monkeypatch.setattr(main_mod, "_workflow_engine", engine)
+    monkeypatch.setattr(main_mod, "_batch_scheduler", BatchScheduler(engine, store))
     _run_async(_agent_registry.load_from_config(main_mod._provider_registry))
     return TestClient(app)
 
@@ -204,3 +206,87 @@ class TestControl:
         # retry_step 会在 portal 循环起新任务；由测试循环驱动完成
         job = await _run_job_until_done(job_id)
         assert job.status.value == "completed"
+
+
+class TestBatchEndpoint:
+    """POST/GET /api/workflows/batches — 批量任务（M2）"""
+
+    @pytest.mark.asyncio
+    async def test_create_batch_json_and_complete(self, client):
+        resp = await asyncio.to_thread(
+            client.post,
+            "/api/workflows/batches",
+            json={
+                "template_name": "scene_suite",
+                "max_concurrency": 2,
+                "items": [
+                    {"product_images": ["fake_b64_data_12345678"], "platform": "taobao",
+                     "product_info": f"商品{i}"}
+                    for i in range(3)
+                ],
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        bid = resp.json()["batch_id"]
+
+        # TestClient portal 不推进后台任务 → 测试循环驱动调度器
+        await asyncio.wait_for(main_mod._batch_scheduler.run(bid), timeout=90)
+
+        d = (await _get(client, f"/api/workflows/batches/{bid}")).json()
+        assert d["status"] == "completed"
+        assert d["done"] == 3
+        assert len(d["items"]) == 3
+        assert all(it["status"] == "succeeded" for it in d["items"])
+
+    @pytest.mark.asyncio
+    async def test_create_batch_csv(self, client):
+        csv_bytes = "product_info,platform,category_hint\n商品A,taobao,保健品\n商品B,amazon,\n".encode("utf-8")
+        resp = await asyncio.to_thread(
+            client.post,
+            "/api/workflows/batches",
+            data={"template_name": "scene_suite"},
+            files=[("file", ("batch.csv", csv_bytes, "text/csv"))],
+        )
+        assert resp.status_code == 200, resp.text
+        bid = resp.json()["batch_id"]
+        items = (await _get(client, f"/api/workflows/batches/{bid}")).json()["items"]
+        assert len(items) == 2
+        assert items[1]["inputs"]["platform"] == "amazon"
+        assert items[0]["inputs"]["category_hint"] == "保健品"
+        assert items[0]["inputs"]["product_images"] == ["Y3N2"]  # CSV 占位图
+
+    @pytest.mark.asyncio
+    async def test_batch_dead_letter_and_retry(self, client):
+        resp = await asyncio.to_thread(
+            client.post,
+            "/api/workflows/batches",
+            json={
+                "template_name": "scene_suite",
+                "items": [
+                    {"product_images": ["fake_b64_data_12345678"], "platform": "taobao"},
+                    {"platform": "taobao"},   # 缺必填 product_images → 死信
+                ],
+            },
+        )
+        assert resp.status_code == 200
+        bid = resp.json()["batch_id"]
+        await asyncio.wait_for(main_mod._batch_scheduler.run(bid), timeout=90)
+
+        d = (await _get(client, f"/api/workflows/batches/{bid}")).json()
+        assert d["status"] == "partial"
+        assert d["failed"] == 1
+
+        # retry_failed 控制
+        r = await asyncio.to_thread(
+            client.post, f"/api/workflows/batches/{bid}/control", json={"action": "retry_failed"}
+        )
+        assert r.status_code == 200
+        assert r.json()["retried"] == 1
+        await asyncio.wait_for(main_mod._batch_scheduler.run(bid), timeout=90)
+
+    def test_batch_list_and_bad_control(self, client):
+        resp = client.get("/api/workflows/batches")
+        assert resp.status_code == 200
+        assert "batches" in resp.json()
+        assert client.post("/api/workflows/batches/x/control", json={}).status_code == 400
+        assert client.post("/api/workflows/batches", json={"template_name": "nope", "items": [{}]}).status_code == 400

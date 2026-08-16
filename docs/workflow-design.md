@@ -391,7 +391,7 @@ batches(batch_id, template_name, tenant_id, status, total, done, failed,
 | 阶段 | 交付 | 验收 |
 |------|------|------|
 | **M1（Phase 1）** | DSL + engine + job_store + expressions + tools（validate/post_process）+ 4 模板 + 全部 API + 画布页（自动/手动挡） | ✅ 已交付：54 个工作流测试通过，Mock 模式端到端跑通 4 模板，崩溃续跑/手动挡/人工审批/回跳重试均覆盖 |
-| **M2（Phase 2a）** | batch.py + 批量页 + 死信重跑 | 100 商品 CSV 批量跑通，失败隔离 |
+| **M2（Phase 2a）** | batch.py + 批量页 + 死信重跑 | ✅ 已交付：BatchScheduler（并发窗口/单项自动重试 2 次/死信/暂停恢复取消/断点续跑）、4 个批量端点（JSON+CSV）、前端批量页（进度/控制/死信重跑）、13 个新测试 |
 | **M3（Phase 2b）** | 一键风格复刻（新增「风格拆解员」Agent，YAML 注册零核心改动）+ 群聊插话（WS 双向指令） | 参考图复刻出的主图风格要素匹配 |
 | **M4（Phase 3）** | 审批 SLA 超时自动决策 + webhook/连接器接口 + 模板导入导出 | 外部回调触发状态流转 |
 
@@ -440,3 +440,11 @@ frontend/src/pages/Batches.jsx   ← Phase 2
 5. **TestClient 限制**：Starlette TestClient 每个请求使用即弃的事件循环，端点上 `asyncio.create_task` 的后台任务在其中不会被推进（生产 uvicorn 循环常驻无此问题）。API 测试因此用测试自身事件循环驱动引擎 + `asyncio.to_thread` 转发 HTTP 调用。
 6. **极简表达式扩充**：支持裸词字符串（`verdict == retry`）、`None` 安全比较（缺失值恒 False）、列表字面量、`not in`。
 7. **测试隔离**：`JobStore` 支持自定义 `db_path`；工作流 API 测试用临时 SQLite + monkeypatch 全局 store/engine，不污染 `data/workflow.db`。
+
+### 13.1 M2 实施补充
+
+1. **多 worker 唤醒**：批处理多个 worker 并发等待控制信号，单事件对象会被覆盖 → 改用**世代计数器**模式（每次信号 `wake_generation += 1` + 常驻事件 + clear/双检），所有等待者同时醒来。
+2. **计数原子性**：`done/failed` 计数用 SQL `done=done+?` 原子递增，避免并发 worker 的读改写竞态；批次状态与计数分离更新。
+3. **限流测试隔离**：全局限流器（60rpm）会把批量测试节流到分钟级，`tests/test_workflow` 注入独立高额限流器（限流本身有专门测试）。
+4. **CSV 无图片列**：CSV 批次注入合法 base64 占位符 `Y3N2`（b64("csv")），Mock 模式完整可用；真实图片请用 JSON 传 base64（连接器 URL 列留待 Phase 3）。
+5. **单项重试计数语义**：每轮执行（含 retry_failed 重跑）尝试计数从 1 重新累计（1 次初始 + 2 次自动重试 = 最多 3 次/轮）。
