@@ -1,0 +1,82 @@
+# 白底主图套装 — 淘宝/Amazon 标准主图流水线
+name: 白底主图套装
+version: "1.0.0"
+description: 白底主图 + 场景图 + 社交种草图完整套装，含质量审查与合规检查
+category: 商品图
+icon: "🛍️"
+inputs:
+  - key: product_images
+    label: 商品图片
+    type: images
+    required: true
+  - key: platform
+    label: 目标平台
+    type: select
+    options: [taobao, amazon, xiaohongshu, douyin, jd, shopify]
+    default: taobao
+  - key: category_hint
+    label: 品类提示
+    type: text
+    required: false
+nodes:
+  validate:
+    type: tool
+    tool: validate_image
+    inputs:
+      images: $inputs.product_images
+  analyze:
+    type: agent
+    agent: 商品分析员
+    task: 分析上传的商品图片，识别品类、卖点、目标人群与风格约束
+    max_retries: 2
+  category:
+    type: agent
+    agent: 品类专项分析员
+    task: 针对品类进行深度分析
+    when: $steps.analyze.outputs.category in [保健品, 化妆品, 食品, 3C数码]
+  prompt:
+    type: agent
+    agent: 提示词生成员
+    task: 基于分析结果生成 {inputs.platform} 平台完整提示词方案
+    max_retries: 2
+  generate:
+    type: agent
+    agent: 生图员
+    task: 使用提示词生成商品展示图片
+  review:
+    type: agent
+    agent: 审查员
+    task: 按 5 维度审查生成图片质量
+  branch:
+    type: condition
+    rules:
+      - when: $steps.review.outputs.overall_score >= 75
+        goto: compliance
+      - when: $steps.review.outputs.verdict == retry and $ctx.retries < 2
+        goto: prompt
+      - default: human_review
+  human_review:
+    type: human
+    prompt: 审查评分未达标，请人工判定
+    routes:
+      approve: compliance
+      retry: prompt
+      reject: failed_end
+  compliance:
+    type: agent
+    agent: 合规审查员
+    task: 检查图片是否符合广告法和平台规范
+  post_process:
+    type: tool
+    tool: post_process_images
+    inputs:
+      images: $steps.generate.outputs.images
+  success_end:
+    type: end
+    status: completed
+  failed_end:
+    type: end
+    status: failed
+edges:
+  - [compliance, post_process]
+  - [post_process, success_end]

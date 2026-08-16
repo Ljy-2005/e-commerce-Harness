@@ -255,3 +255,10 @@ def get_provider_registry() -> ProviderRegistry:
     if _registry is None:
         _registry = ProviderRegistry()
     return _registry
+
+
+def reset_provider_registry() -> ProviderRegistry:
+    """重建 Provider 注册表（设置页更新 API Key 后调用）"""
+    global _registry
+    _registry = ProviderRegistry()
+    return _registry

@@ -43,6 +43,7 @@ class CoordinatorAgent(BaseAgent):
                 {"role": "user", "content": user_prompt},
             ],
             json_mode=True,
+            **self._model_kwargs(),
         )
         return result.get("content", {"action": "done", "reasoning": "Mock fallback"})
 
@@ -66,6 +67,7 @@ class CoordinatorAgent(BaseAgent):
                         {"role": "user", "content": user_prompt},
                     ],
                     json_mode=True,
+                    **self._model_kwargs(),
                 )
                 llm_decision = result.get("content", {})
                 if isinstance(llm_decision, dict) and llm_decision.get("action") in ("invite", "done"):

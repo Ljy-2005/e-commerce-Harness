@@ -1,0 +1,54 @@
+# 场景图套装 — 生活方式场景图生成
+name: 场景图套装
+version: "1.0.0"
+description: 面向生活方式展示的场景图（办公/居家/送礼等），审查通过即完成
+category: 商品图
+icon: "🛋️"
+inputs:
+  - key: product_images
+    label: 商品图片
+    type: images
+    required: true
+  - key: platform
+    label: 目标平台
+    type: select
+    options: [taobao, xiaohongshu, douyin, jd]
+    default: xiaohongshu
+  - key: scene
+    label: 场景偏好
+    type: text
+    required: false
+nodes:
+  validate:
+    type: tool
+    tool: validate_image
+    inputs:
+      images: $inputs.product_images
+  analyze:
+    type: agent
+    agent: 商品分析员
+    task: 分析商品，提取适合生活方式场景展示的卖点
+  prompt:
+    type: agent
+    agent: 提示词生成员
+    task: 生成 {inputs.platform} 平台生活方式场景图提示词（{inputs.scene} 场景优先）
+  generate:
+    type: agent
+    agent: 生图员
+    task: 使用提示词生成场景图
+  review:
+    type: agent
+    agent: 审查员
+    task: 审查场景图的氛围与商品还原度
+  branch:
+    type: condition
+    rules:
+      - when: $steps.review.outputs.overall_score >= 70
+        goto: success_end
+      - default: failed_end
+  success_end:
+    type: end
+    status: completed
+  failed_end:
+    type: end
+    status: failed

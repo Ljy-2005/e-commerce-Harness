@@ -53,6 +53,7 @@ class PromptGeneratorAgent(BaseAgent):
                 {"role": "user", "content": user_msg},
             ],
             json_mode=True,
+            **self._model_kwargs(),
         )
         return result.get("content", self._mock_prompts())
 

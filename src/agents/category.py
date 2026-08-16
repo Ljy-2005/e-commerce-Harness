@@ -26,6 +26,7 @@ class CategorySpecialistAgent(BaseAgent):
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": task_brief},
             ],
+            **self._model_kwargs(),
         )
         return result.get("content", self._mock_by_category(category))
 

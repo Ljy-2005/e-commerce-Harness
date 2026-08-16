@@ -1,0 +1,33 @@
+# 自由群聊 — 与现有会话模式等价（Coordinator 动态编排）
+name: 自由群聊
+version: "1.0.0"
+description: 把整个群聊引擎作为单个智能节点运行（serial/ab_generate/debate/vote/ab_test）
+category: 智能协作
+icon: "💬"
+inputs:
+  - key: product_images
+    label: 商品图片
+    type: images
+    required: true
+  - key: platform
+    label: 目标平台
+    type: select
+    options: [taobao, amazon, xiaohongshu, douyin, jd, shopify]
+    default: taobao
+  - key: category_hint
+    label: 品类提示
+    type: text
+    required: false
+  - key: collaboration_mode
+    label: 协作模式
+    type: select
+    options: [serial, ab_generate, debate, vote, ab_test]
+    default: serial
+nodes:
+  creative:
+    type: group_chat
+    collaboration_mode: $inputs.collaboration_mode
+    max_turns: 15
+  success_end:
+    type: end
+    status: completed

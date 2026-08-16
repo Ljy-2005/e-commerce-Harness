@@ -1,0 +1,63 @@
+# 合规加固 — 保健品/化妆品等强合规品类，人工终审
+name: 合规加固
+version: "1.0.0"
+description: 保健品/化妆品等强合规品类：品类深析 + 合规审查 + 人工终审
+category: 商品图
+icon: "🛡️"
+inputs:
+  - key: product_images
+    label: 商品图片
+    type: images
+    required: true
+  - key: platform
+    label: 目标平台
+    type: select
+    options: [taobao, jd, amazon]
+    default: taobao
+  - key: category_hint
+    label: 品类提示
+    type: text
+    required: true
+nodes:
+  validate:
+    type: tool
+    tool: validate_image
+    inputs:
+      images: $inputs.product_images
+  analyze:
+    type: agent
+    agent: 商品分析员
+    task: 分析商品，重点关注功效宣称与合规风险点
+  category:
+    type: agent
+    agent: 品类专项分析员
+    task: 针对 {inputs.category_hint} 品类深度分析合规维度
+  prompt:
+    type: agent
+    agent: 提示词生成员
+    task: 生成合规优先的提示词方案，规避医疗宣称与违规表述
+  generate:
+    type: agent
+    agent: 生图员
+    task: 使用提示词生成商品展示图片
+  review:
+    type: agent
+    agent: 审查员
+    task: 审查图片质量与合规风险
+  compliance:
+    type: agent
+    agent: 合规审查员
+    task: 检查图片是否符合广告法与平台规范
+  final_approval:
+    type: human
+    prompt: 强合规品类，请人工终审后发布
+    routes:
+      approve: success_end
+      retry: prompt
+      reject: failed_end
+  success_end:
+    type: end
+    status: completed
+  failed_end:
+    type: end
+    status: failed

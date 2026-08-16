@@ -62,6 +62,8 @@ class BaseAgent(ABC):
     def __init__(self, provider=None, retry_config: RetryConfig | None = None):
         self.provider = provider
         self.retry_config = retry_config or RetryConfig()
+        # 由注册表从 config/models.yaml 解析注入的模型名（能力声明 → 模型映射）
+        self.model_name = ""
 
     async def execute(self, task_brief: str, session) -> dict:
         """统一执行入口 — 完整的 Harness 保护链"""
@@ -163,7 +165,14 @@ class BaseAgent(ABC):
         ...
 
     def _get_model(self) -> str:
-        """Helper: 获取当前 provider 使用的模型名"""
+        """Helper: 获取当前解析到的模型名（config/models.yaml 注入）"""
+        if self.model_name:
+            return self.model_name
         if self.provider and hasattr(self.provider, "_current_model"):
             return self.provider._current_model
         return ""
+
+    def _model_kwargs(self) -> dict:
+        """把解析到的模型名传给 Provider（为空时用 Provider 自己的默认模型）"""
+        model = self._get_model()
+        return {"model": model} if model else {}

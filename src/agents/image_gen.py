@@ -33,6 +33,7 @@ class ImageGeneratorAgent(BaseAgent):
                 result = await self.provider.generate(
                     prompt=main_prompt,
                     size="1024x1024",
+                    **self._model_kwargs(),
                 )
                 images.append({
                     "prompt_name": f"variant_{i+1}",

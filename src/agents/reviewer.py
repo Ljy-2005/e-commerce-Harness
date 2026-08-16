@@ -41,6 +41,7 @@ class ReviewerAgent(BaseAgent):
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content},
             ],
+            **self._model_kwargs(),
         )
         review = result.get("content", self._mock_review())
         review["iteration"] = session.get("turn_count", 0)

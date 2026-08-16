@@ -47,6 +47,7 @@ class ComplianceAgent(BaseAgent):
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content},
             ],
+            **self._model_kwargs(),
         )
         return result.get("content", self._mock_compliance())
 

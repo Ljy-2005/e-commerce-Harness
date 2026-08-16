@@ -75,14 +75,36 @@ class TestCreateSession:
         assert resp.status_code in (400, 422)
 
     def test_create_session_tenant_header_accepted(self):
-        """X-Tenant-ID header 正常工作"""
+        """X-Tenant-ID header 正常工作（伪造 PNG 预处理失败 → 400，但未触发租户错误）"""
         resp = client.post(
             "/api/sessions",
             data={"platform": "taobao", "product_info": "test"},
             headers={"X-Tenant-ID": "default"},
             files=[("files", ("test.png", b"\x89PNG\r\n\x1a\n" + b"\x00" * 100, "image/png"))],
         )
-        assert resp.status_code in (200, 201, 400)  # 400 if preprocess fails on minimal PNG
+        assert resp.status_code == 400  # 伪造 PNG 无法解码 → 图片验证失败
+
+    def test_create_session_with_valid_image_succeeds(self):
+        """有效图片上传 → 会话创建成功
+        （回归防护：曾因 _FakeImage.base64_data 恒为空导致所有上传被 400 拒绝）
+        """
+        import io
+        from PIL import Image
+
+        buf = io.BytesIO()
+        Image.new("RGB", (64, 64), (255, 0, 0)).save(buf, format="JPEG")
+        valid_jpeg = buf.getvalue()
+
+        resp = client.post(
+            "/api/sessions",
+            data={"platform": "taobao", "product_info": "测试保健品"},
+            headers={"X-Tenant-ID": "default"},
+            files=[("files", ("product.jpg", valid_jpeg, "image/jpeg"))],
+        )
+        assert resp.status_code in (200, 201), resp.text
+        body = resp.json()
+        assert body.get("session_id")
+        assert body.get("preprocess", {}).get("total") == 1
 
     def test_invalid_file_type_rejected(self):
         """非图片文件被拒绝"""

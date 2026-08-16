@@ -90,11 +90,16 @@ class AgentRegistry:
 
         # 特殊处理：Coordinator 和 PostProcessor 不需要 Provider
         if meta.name == "中心决策者":
-            return cls(provider=provider, registry=self)  # Coordinator 可在无 Provider 时 Mock 运行
-        if meta.name == "图像后处理员":
-            return cls()
+            agent = cls(provider=provider, registry=self)  # Coordinator 可在无 Provider 时 Mock 运行
+        elif meta.name == "图像后处理员":
+            agent = cls()
+        else:
+            agent = cls(provider=provider) if provider else None
 
-        return cls(provider=provider) if provider else None
+        # 把 config/models.yaml 解析出的模型名注入 Agent（Agent 调用 Provider 时显式传递）
+        if agent and model:
+            agent.model_name = model
+        return agent
 
 
 # 全局单例

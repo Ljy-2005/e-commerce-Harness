@@ -125,7 +125,10 @@ class ABTestRunner:
         if agent is None:
             return ABTestResult(
                 config=config,
-                variants=[VariantResult(v.variant_id, error=f"Agent '{config.agent_name}' 未注册")]
+                variants=[
+                    VariantResult(v.variant_id, error=f"Agent '{config.agent_name}' 未注册")
+                    for v in config.variants
+                ],
             )
 
         # Stage 1: 并行执行所有变体
@@ -137,10 +140,12 @@ class ABTestRunner:
                 variant_results.append(await self._run_variant(agent, v, config))
 
         # Stage 2: 审查每个变体的结果
+        # 注意：执行成功（无 error）即可送审——评分是审查的产物，
+        # 不能以 avg_score > 0 作为送审门槛（否则永远无人送审）。
         reviewer = self.registry.get(config.review_agent)
-        if reviewer and any(vr.success for vr in variant_results):
+        if reviewer:
             for vr in variant_results:
-                if vr.success:
+                if not vr.error:
                     vr.scores = await self._review_variant(reviewer, vr, config)
 
         # Stage 3: 排名和选优

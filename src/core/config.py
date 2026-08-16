@@ -53,6 +53,55 @@ def get_env(key: str, default: str = "") -> str:
     return os.getenv(key, default)
 
 
+# ── 运行时密钥持久化（Web 设置页写入的 API Key） ──
+
+RUNTIME_SECRETS_REL = "config/secrets.yaml"
+
+
+def runtime_secrets_path() -> Path:
+    return _project_root() / RUNTIME_SECRETS_REL
+
+
+def load_runtime_secrets() -> dict[str, str]:
+    """读取 Web 设置页持久化的密钥文件"""
+    data = load_yaml(RUNTIME_SECRETS_REL)
+    if not isinstance(data, dict):
+        return {}
+    return {str(k): str(v) for k, v in data.items() if v}
+
+
+def save_runtime_secrets(secrets: dict[str, str]) -> None:
+    """把密钥写入 config/secrets.yaml（空值表示删除该键）"""
+    path = runtime_secrets_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    existing = load_runtime_secrets()
+    merged = dict(existing)
+    for k, v in secrets.items():
+        if v:
+            merged[k] = v
+        else:
+            merged.pop(k, None)
+    with open(path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(merged, f, allow_unicode=True, sort_keys=False)
+
+
+def apply_runtime_secrets_to_env() -> int:
+    """把持久化密钥注入 os.environ（环境变量显式设置时优先），返回注入数量。
+
+    必须在 Provider 注册表构建前调用（本模块 import 时自动执行一次）。
+    """
+    applied = 0
+    for k, v in load_runtime_secrets().items():
+        if os.environ.get(k) is None:
+            os.environ[k] = v
+            applied += 1
+    return applied
+
+
+# 模块导入时自动应用（Provider 检测依赖 os.environ）
+apply_runtime_secrets_to_env()
+
+
 def is_mock_mode() -> bool:
     """检测是否应启用 Mock 模式"""
     explicit = get_env("MOCK_MODE")
