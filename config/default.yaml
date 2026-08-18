@@ -5,6 +5,7 @@ app:
   name: "ecommerce-harness"
   version: "0.1.0"
   log_level: "INFO"
+  cors_origins: ["http://localhost:5173", "http://localhost:3000"]   # CORS 白名单（ECOMM_CORS_ORIGINS 可覆盖）
 
 chat:
   max_turns: 15             # 最大群聊轮次

@@ -53,6 +53,31 @@ def get_env(key: str, default: str = "") -> str:
     return os.getenv(key, default)
 
 
+# ── CORS 白名单 ──
+
+DEFAULT_CORS_ORIGINS = ["http://localhost:5173", "http://localhost:3000"]
+
+
+def get_cors_origins() -> list[str]:
+    """CORS 允许来源列表。
+
+    优先级：ECOMM_CORS_ORIGINS（逗号分隔）→ config/default.yaml 的
+    app.cors_origins → 内置默认值（本地开发前端端口）。
+    """
+    raw = get_env("CORS_ORIGINS")
+    if raw:
+        origins = [o.strip() for o in raw.split(",") if o.strip()]
+        if origins:
+            return origins
+    cfg = load_default_config().get("app", {}) or {}
+    origins = cfg.get("cors_origins")
+    if isinstance(origins, list):
+        cleaned = [str(o).strip() for o in origins if str(o).strip()]
+        if cleaned:
+            return cleaned
+    return list(DEFAULT_CORS_ORIGINS)
+
+
 # ── 运行时密钥持久化（Web 设置页写入的 API Key） ──
 
 RUNTIME_SECRETS_REL = "config/secrets.yaml"
@@ -83,6 +108,11 @@ def save_runtime_secrets(secrets: dict[str, str]) -> None:
             merged.pop(k, None)
     with open(path, "w", encoding="utf-8") as f:
         yaml.safe_dump(merged, f, allow_unicode=True, sort_keys=False)
+    # 审计修复：密钥文件收紧权限（POSIX 下 0644 → 0600，防本机其他用户读取）
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass  # Windows 无 POSIX 权限语义，忽略
 
 
 def apply_runtime_secrets_to_env() -> int:

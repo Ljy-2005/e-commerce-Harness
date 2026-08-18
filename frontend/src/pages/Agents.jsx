@@ -60,12 +60,6 @@ function AgentCard({ agent, expanded, onToggle, onSaved }) {
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
 
-  function initialValues() {
-    const v = {}
-    for (const p of agent.params || []) v[p.key] = p.default
-    return v
-  }
-
   async function handleSave() {
     setSaving(true)
     setMsg('')

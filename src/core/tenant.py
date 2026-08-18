@@ -94,9 +94,13 @@ class TenantRegistry:
                     quota=quota,
                 )
 
-    def get(self, tenant_id: str) -> TenantContext:
-        """获取租户上下文。未知租户返回默认租户"""
-        return self._tenants.get(tenant_id, self._tenants["default"])
+    def get(self, tenant_id: str) -> Optional["TenantContext"]:
+        """获取租户上下文。未知租户返回 None（调用方应拒绝，勿静默回退 default）。
+
+        审计修复：此前未知租户静默回退 default 租户，配合自声明的 X-Tenant-ID
+        使多租户隔离失效（拼错/伪造租户头即共享 default 的数据与配额）。
+        """
+        return self._tenants.get(tenant_id)
 
     def list_ids(self) -> list[str]:
         return list(self._tenants.keys())

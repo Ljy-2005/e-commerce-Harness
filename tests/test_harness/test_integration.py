@@ -50,6 +50,24 @@ class TestCircuitBreakerIntegration:
         assert cb.state.value == "open"
 
     @pytest.mark.asyncio
+    async def test_error_dict_opens_circuit(self):
+        """审计修复：Provider 返回 {"error": ...}（非 200）也必须计为熔断失败"""
+
+        class _ErrorAgent(BaseAgent):
+            meta_name = "error_agent"
+            timeout_ms = 5000
+
+            async def _execute_impl(self, task_brief, session) -> dict:
+                return {"error": "HTTP 500", "tokens_used": 0}
+
+        agent = _ErrorAgent(provider=_FakeProvider("error-provider"))
+        session = _make_session()
+        for _ in range(5):
+            await agent.execute("test", session)
+        cb = get_circuit_breaker("error-provider")
+        assert cb.state.value == "open"
+
+    @pytest.mark.asyncio
     async def test_circuit_open_blocks_requests(self):
         agent = _FailingAgent(provider=_FakeProvider("blocked-provider"))
         session = _make_session()

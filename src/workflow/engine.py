@@ -110,6 +110,10 @@ class WorkflowEngine:
 
         if action == "cancel":
             runtime.cancelled = True
+            # 审计修复：cancel 也要唤醒 WAITING_HUMAN 的 human_event，否则无人决策时
+            # job 永久卡在 waiting_human 且 task 泄漏
+            if runtime.human_event:
+                runtime.human_event.set()
             self._signal(runtime)
             return {"job_id": job_id, "action": action, "status": "cancelling"}
 
@@ -385,6 +389,10 @@ class WorkflowEngine:
     async def _run_human(self, job, cfg, step, graph) -> str:
         job_id = job.job_id
         runtime = self._runtimes[job_id]
+        # 审计修复：先创建 human_event 再落 WAITING_HUMAN 状态——
+        # 否则 cancel 可能落在"状态已落库但事件未创建"的窗口内而唤醒失效
+        runtime.human_action = ""
+        runtime.human_event = asyncio.Event()
         step.status = StepStatus.WAITING_HUMAN
         step.started_at = _now()
         await self.store.update_step(step)
@@ -396,8 +404,6 @@ class WorkflowEngine:
             "on_sla_timeout": cfg.get("on_sla_timeout", "keep_waiting"),
         })
 
-        runtime.human_action = ""
-        runtime.human_event = asyncio.Event()
         action = ""
         sla_used = False
         sla_minutes = float(cfg.get("sla_minutes", 0) or 0)
@@ -563,8 +569,17 @@ class WorkflowEngine:
         for s in steps:
             if s.order >= target.order:
                 runtime.step_outputs.pop(s.node, None)
-        if runtime.task and not runtime.task.done():
-            runtime.task.cancel()
+        # 审计修复：cancel 后必须先 await 旧任务完成再 start——
+        # 此前 cancel() 后立即 start()，task.done() 仍为 False 导致复用旧 task，
+        # job 被置 RUNNING 却无人执行（retry_step/replicate_style 后永久卡死）。
+        old_task = runtime.task
+        if old_task and not old_task.done():
+            old_task.cancel()
+            try:
+                await old_task
+            except (asyncio.CancelledError, Exception):
+                pass  # 旧任务按预期取消
+        runtime.task = None  # 显式清空，start 必然创建新任务
         await self.start(job)
 
     async def skip_step(self, job_id: str, step_node: str):

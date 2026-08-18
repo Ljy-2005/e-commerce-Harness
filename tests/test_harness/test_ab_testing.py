@@ -293,3 +293,56 @@ class TestABTestRunner:
         # Mock 审查员固定 82 分 → 平均 82
         assert vr.avg_score == 82.0
         assert result.winner is vr
+
+    @pytest.mark.asyncio
+    async def test_model_override_propagates_to_agent(self):
+        """审计修复：model_override 必须真实传给 Agent（此前只拼进提示词文本）"""
+
+        class _CaptureAgent:
+            meta_name = "抓取员"
+            provider = None
+            captured = []
+
+            async def execute(self, task_brief, session, model_override=None):
+                _CaptureAgent.captured.append(model_override)
+                return {"content": {}, "tokens_used": 1, "cost_usd": 0.0}
+
+        _CaptureAgent.captured = []
+        registry = AgentRegistry()
+        registry.register(
+            _CaptureAgent(),
+            AgentMeta(name="抓取员", description="测试用", requires=["text"]),
+        )
+        config = ABTestConfig(
+            agent_name="抓取员",
+            variants=[
+                ABVariant("v1", model_override="gpt-4o"),
+                ABVariant("v2", model_override="deepseek-chat"),
+            ],
+            review_count=1,
+        )
+        await ABTestRunner(registry, {"tenant_id": "default"}).run(config)
+        assert _CaptureAgent.captured == ["gpt-4o", "deepseek-chat"]
+
+    @pytest.mark.asyncio
+    async def test_base_agent_model_override_in_kwargs(self):
+        """BaseAgent.execute(model_override=...) 经 _model_kwargs 传给 Provider"""
+        from src.agents.base import BaseAgent
+
+        class _P:
+            name = "fake"
+            capabilities = ["text"]
+
+        seen = {}
+
+        class _A(BaseAgent):
+            async def _execute_impl(self, task_brief, session):
+                seen["model"] = self._model_kwargs().get("model")
+                return {"content": "ok", "tokens_used": 1}
+
+        agent = _A(provider=_P())
+        await agent.execute("t", {"tenant_id": "default"}, model_override="qwen-max")
+        assert seen["model"] == "qwen-max"
+        # 覆盖只对本次调用生效
+        await agent.execute("t2", {"tenant_id": "default"})
+        assert seen["model"] is None

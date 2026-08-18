@@ -2,7 +2,7 @@
 
 群聊式多智能体电商商品图生成系统。
 
-7 个 AI Agent 在中心决策者的协调下，像群聊一样协作完成商品图生成任务。
+9 个 AI Agent 在中心决策者的协调下，像群聊一样协作完成商品图生成任务。
 
 ## 架构
 
@@ -27,7 +27,7 @@
 pip install -e ".[dev]"
 
 # Mock Mode 启动（无需 API Key）
-uvicorn src.main:app --reload --port 8000
+uvicorn src.api.main:app --reload --port 8000
 
 # 或者用 CLI
 python -m src.cli run ./product.jpg --platform taobao
@@ -35,14 +35,19 @@ python -m src.cli run ./product.jpg --platform taobao
 
 ## API
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| `POST` | `/api/sessions` | 创建会话 |
-| `GET` | `/api/sessions/{id}` | 获取状态 |
-| `GET` | `/api/sessions/{id}/messages?since=N` | 增量拉取消息 |
-| `GET` | `/api/agents` | 列出所有 Agent |
-| `WS` | `/ws/sessions/{id}` | 实时群聊流 |
-| `GET` | `/health` | 健康检查 |
+完整端点清单见 `docs/modules/api.md` 与 `docs/workflow-design.md` §7。主要分组：
+
+| 分组 | 说明 |
+|------|------|
+| `POST /api/sessions` | 创建会话（上传商品图，异步群聊） |
+| `GET /api/sessions` / `{id}` / `{id}/messages` | 会话列表 / 状态 / 增量消息 |
+| `POST /api/sessions/{id}/decision` / `interject` / `ab-test` | 人工决策 / 插话 / A/B 对比 |
+| `GET /api/agents` · `GET /api/admin/status` · `GET /health` | Agent / 系统状态 / 健康检查 |
+| `GET /api/settings` + 3 个 `POST` | 设置汇总 / API Key / Agent 参数 / 模型映射 |
+| `/api/workflows/*` | 工作流：模板画廊/实例化/作业/控制/审批/复刻/批量/报表/导入导出 |
+| `/api/webhooks/workflows/{id}/decision` | 入站 Webhook 审批回调 |
+| `GET /api/audit` · `GET /api/memory/*` | 审计日志 / 记忆库 |
+| `WS /ws/sessions/{id}` · `WS /ws/workflows/jobs/{id}` | 群聊直播（双向插话）/ 工作流事件流 |
 
 ## 可用 Agent
 
@@ -56,6 +61,7 @@ python -m src.cli run ./product.jpg --platform taobao
 | 审查员 | vision | 5 维度质量评分 |
 | 合规审查员 | vision | 广告法+平台规范检查 |
 | 图像后处理员 | local | 去背景+增强 |
+| 风格拆解员 | vision | 拆解参考图风格（一键复刻） |
 
 ## 配置
 

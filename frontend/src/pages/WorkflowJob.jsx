@@ -61,6 +61,13 @@ export default function WorkflowJob() {
     }
   }, [id])
 
+  // 审计修复：路由参数变化时重置状态，避免新 URL 短暂渲染上一作业的数据
+  useEffect(() => {
+    setJob(null)
+    setSelected(null)
+    setError('')
+  }, [id])
+
   // WebSocket 实时事件 + 3s 轮询兜底
   useEffect(() => {
     refresh()

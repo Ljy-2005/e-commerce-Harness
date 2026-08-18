@@ -18,7 +18,7 @@ COPY pyproject.toml .
 RUN pip install --no-cache-dir -e ".[dev]"
 COPY . .
 EXPOSE 8000
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
 ### `deploy/docker-compose.yml`
@@ -64,7 +64,15 @@ dev: pytest, pytest-asyncio, pytest-cov, openai, ruff
 ```
 
 ### `.env.example`
-环境变量模板。详见文件内注释。每个 Provider 的 Key 变量均已列出。
+环境变量模板。详见文件内注释。每个 Provider 的 Key 变量均已列出，另含平台配置：
+
+| 变量 | 说明 |
+|------|------|
+| `ECOMM_MOCK_MODE` | 强制 Mock（true/false），缺省按 API Key 自动检测 |
+| `ECOMM_LOG_LEVEL` | 日志级别（默认 INFO） |
+| `ECOMM_CORS_ORIGINS` | CORS 白名单（默认回退 `config/default.yaml` 的 `app.cors_origins`） |
+| `ECOMM_API_KEY` | 配置后启用全局 API 鉴权（不配置则开发模式全开放） |
+| `ECOMM_WEBHOOK_TOKEN` | 工作流入站回调鉴权（未配置回调端点 503 停用） |
 
 ## 开发流程
 
@@ -80,7 +88,7 @@ cp .env.example .env
 pytest
 
 # 4. 启动开发服务器
-uvicorn src.main:app --reload --port 8000
+uvicorn src.api.main:app --reload --port 8000
 
 # 5. CLI 测试
 python -m src.cli run product.jpg --platform taobao
@@ -91,7 +99,7 @@ python -m src.cli run product.jpg --platform taobao
 ```bash
 # 1. 配置环境变量
 cp .env.example .env
-# 编辑 .env，填入真实 API Key + ECOMM_CORS_ORIGINS
+# 编辑 .env，填入真实 API Key + ECOMM_API_KEY + ECOMM_CORS_ORIGINS
 
 # 2. Docker 启动
 docker-compose -f deploy/docker-compose.yml up -d

@@ -64,27 +64,37 @@ class TestBatchRun:
         assert failed["attempts"] == 3          # 1 次初始 + 2 次自动重试
 
     @pytest.mark.asyncio
-    async def test_retry_failed_reruns_dead_letter(self, scheduler, store):
+    async def test_retry_failed_reruns_dead_letter(self, scheduler, store, monkeypatch):
         items = _items(2)
         items.append({"platform": "taobao"})  # 缺必填 → 死信（seq=2）
         batch = await scheduler.submit("scene_suite", items, max_concurrency=2)
         await _wait_batch(store, batch["batch_id"], ["partial"])
 
+        # 死信项瞬时完成（缺必填输入 → instantiate 立即抛错），轮询中间态 running
+        # 会因时序错过而偶发失败 → 改用 spy 统计新一轮 instantiate 调用次数，
+        # 确定性证明死信项真的被重新执行（决策 6/13：验收标准的 Mock 化落地）
+        calls = {"dead": 0}
+        real_instantiate = templates.instantiate
+
+        def _counting_instantiate(name, inputs, **kwargs):
+            if "product_images" not in inputs:
+                calls["dead"] += 1
+            return real_instantiate(name, inputs, **kwargs)
+
+        monkeypatch.setattr(templates, "instantiate", _counting_instantiate)
+
         result = await scheduler.control(batch["batch_id"], "retry_failed")
         assert result["retried"] == 1
 
-        # 观察中间态 running → 确认死信项真的进入新一轮执行 → 最终回到 failed
-        seen_running = False
+        dead = None
         for _ in range(900):
             batch_items = await store.get_batch_items(batch["batch_id"])
             dead = next(it for it in batch_items if it["seq"] == 2)
-            if dead["status"] == "running":
-                seen_running = True
-            if seen_running and dead["status"] == "failed":
+            if dead["status"] == "failed" and calls["dead"] >= 3:
                 break
             await asyncio.sleep(0.05)
-        assert seen_running, "死信项未被重新执行"
-        assert dead["status"] == "failed"
+        assert calls["dead"] == 3, "死信项未被重新执行（新一轮应为 3 次 instantiate 尝试）"
+        assert dead is not None and dead["status"] == "failed"
         assert dead["attempts"] == 3  # 新一轮：1 次初始 + 2 次自动重试
 
     @pytest.mark.asyncio

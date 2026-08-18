@@ -1,7 +1,24 @@
 const BASE = '/api'
 
+// 前端持有的 API Key（设置页写入 localStorage；审计修复：此前前端从不发
+// X-API-Key / WS 不带 ?api_key=，生产配置 ECOMM_API_KEY 后整站 401）
+export function getStoredApiKey() {
+  return localStorage.getItem('ecomm_api_key') || ''
+}
+
+export function setStoredApiKey(key) {
+  if (key) localStorage.setItem('ecomm_api_key', key)
+  else localStorage.removeItem('ecomm_api_key')
+}
+
+function authHeaders(extra = {}) {
+  const key = getStoredApiKey()
+  if (!key) return extra
+  return { ...extra, 'X-API-Key': key }
+}
+
 async function request(path, options = {}) {
-  const res = await fetch(`${BASE}${path}`, options)
+  const res = await fetch(`${BASE}${path}`, { ...options, headers: authHeaders(options.headers) })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
     throw new Error(body.detail || body.error || `Request failed (${res.status})`)
@@ -19,7 +36,7 @@ export async function createSession(files, productInfo = '', platform = 'taobao'
   form.append('category_hint', category)
   form.append('mode', mode)
 
-  const res = await fetch(`${BASE}/sessions`, { method: 'POST', body: form })
+  const res = await fetch(`${BASE}/sessions`, { method: 'POST', body: form, headers: authHeaders() })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
     throw new Error(body.detail || `Upload failed (${res.status})`)
@@ -82,10 +99,6 @@ export async function getAdminStatus() {
 }
 
 // ── Agent ──
-
-export async function getAgents() {
-  return request('/agents')
-}
 
 // ── 设置 ──
 
@@ -163,6 +176,7 @@ export async function instantiateWorkflow(template, formData) {
   const res = await fetch(`${BASE}/workflows/templates/${template}/instantiate`, {
     method: 'POST',
     body: formData,
+    headers: authHeaders(),
   })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
@@ -198,7 +212,7 @@ export async function decideWorkflow(jobId, action) {
 export async function replicateStyle(jobId, file) {
   const fd = new FormData()
   fd.append('files', file)
-  const res = await fetch(`${BASE}/workflows/jobs/${jobId}/replicate`, { method: 'POST', body: fd })
+  const res = await fetch(`${BASE}/workflows/jobs/${jobId}/replicate`, { method: 'POST', body: fd, headers: authHeaders() })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
     throw new Error(body.detail || `风格复刻失败 (${res.status})`)
@@ -214,12 +228,13 @@ export async function createBatch(body) {
   })
 }
 
-export async function createBatchCsv(template, csvFile, mode = 'auto') {
+export async function createBatchCsv(template, csvFile, mode = 'auto', maxConcurrency = 3) {
   const fd = new FormData()
   fd.append('template_name', template)
   fd.append('mode', mode)
+  fd.append('max_concurrency', String(maxConcurrency))
   fd.append('file', csvFile)
-  const res = await fetch(`${BASE}/workflows/batches`, { method: 'POST', body: fd })
+  const res = await fetch(`${BASE}/workflows/batches`, { method: 'POST', body: fd, headers: authHeaders() })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
     throw new Error(body.detail || `创建失败 (${res.status})`)
@@ -229,6 +244,10 @@ export async function createBatchCsv(template, csvFile, mode = 'auto') {
 
 export async function getBatches() {
   return request('/workflows/batches')
+}
+
+export async function getBatchReport() {
+  return request('/workflows/batches/report')
 }
 
 export async function getBatch(batchId) {
@@ -247,5 +266,7 @@ export async function controlBatch(batchId, action) {
 
 export function wsUrl(path) {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${proto}//${location.host}${path}`
+  const key = getStoredApiKey()
+  const q = key ? `?api_key=${encodeURIComponent(key)}` : ''
+  return `${proto}//${location.host}${path}${q}`
 }

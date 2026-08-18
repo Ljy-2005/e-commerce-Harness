@@ -74,6 +74,8 @@ async def _webhook_notify(inputs: dict) -> dict:
     """M4 出站连接器：向外部 URL 发送 JSON 通知（best-effort，不因失败中断流程）
 
     inputs: {url, event, payload}
+    SSRF 防护（审计修复）：仅 http/https；拒绝回环/私网/链路本地/保留地址
+    （IP 字面量直接判，主机名解析后判——解析失败放行，由请求自然报错）。
     """
     import httpx
 
@@ -82,6 +84,14 @@ async def _webhook_notify(inputs: dict) -> dict:
         return {"ok": True, "status_code": 0, "error": "", "note": "url 为空，跳过通知"}
     event = inputs.get("event", "workflow_event")
     payload = inputs.get("payload", {})
+
+    try:
+        error = _validate_notify_url(url)
+        if error:
+            return {"ok": False, "status_code": 0, "error": error}
+    except Exception as e:
+        return {"ok": False, "status_code": 0, "error": str(e)[:200]}
+
     try:
         async with httpx.AsyncClient(timeout=5) as client:
             resp = await client.post(url, json={"event": event, "payload": payload})
@@ -90,6 +100,42 @@ async def _webhook_notify(inputs: dict) -> dict:
     except Exception as e:
         # 通知类工具 best-effort：失败返回结构化错误而不抛出
         return {"ok": False, "status_code": 0, "error": str(e)[:200]}
+
+
+def _validate_notify_url(url: str) -> str:
+    """SSRF 校验：非法返回错误信息，合法返回空字符串"""
+    import ipaddress
+    import socket
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return f"仅支持 http/https 协议: {url[:50]}"
+    host = parsed.hostname or ""
+    if not host:
+        return "URL 缺少主机名"
+
+    def _blocked(ip) -> bool:
+        return (ip.is_private or ip.is_loopback or ip.is_link_local
+                or ip.is_reserved or ip.is_multicast)
+
+    try:
+        ipaddress.ip_address(host)  # IP 字面量
+        if _blocked(ipaddress.ip_address(host)):
+            return f"禁止访问内网/回环/保留地址: {host[:50]}"
+        return ""
+    except ValueError:
+        pass
+
+    # 主机名：解析后检查（解析失败放行，请求会自然失败）
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror:
+        return ""
+    for info in infos:
+        if _blocked(ipaddress.ip_address(info[4][0])):
+            return f"禁止访问内网/回环/保留地址: {host[:50]}"
+    return ""
 
 
 register_tool("validate_image", _validate_image)

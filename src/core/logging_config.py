@@ -7,7 +7,7 @@
 import logging
 import os
 import sys
-from datetime import timezone
+from datetime import datetime, timezone
 
 
 # ── 全局初始化 ──
@@ -22,7 +22,7 @@ def _setup_logging():
         datefmt="%Y-%m-%dT%H:%M:%S",
     )
     # 使用 UTC 时间
-    fmt.converter = lambda *args: __import__("datetime").datetime.now(tz=timezone.utc).timetuple()
+    fmt.converter = lambda *args: datetime.now(tz=timezone.utc).timetuple()
 
     handler = logging.StreamHandler(sys.stderr)
     handler.setFormatter(fmt)

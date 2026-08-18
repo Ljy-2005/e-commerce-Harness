@@ -1,13 +1,21 @@
-"""Agent 记忆/学习测试"""
+"""Agent 记忆/学习测试
+
+审计修复：AgentMemory 注入临时目录（storage_dir=tmp_path），
+此前用默认 data/memory 目录，clear() 会清空真实记忆库。
+"""
 
 import pytest
 from src.harness.agent_memory import AgentMemory
 
 
+@pytest.fixture
+def memory(tmp_path):
+    return AgentMemory(storage_dir=str(tmp_path / "memory"))
+
+
 class TestAgentMemory:
     @pytest.mark.asyncio
-    async def test_remember_and_recall(self):
-        memory = AgentMemory()
+    async def test_remember_and_recall(self, memory):
         await memory.clear()
 
         await memory.remember(
@@ -22,8 +30,7 @@ class TestAgentMemory:
         assert entries[0]["score"] == 88
 
     @pytest.mark.asyncio
-    async def test_low_score_not_remembered(self):
-        memory = AgentMemory()
+    async def test_low_score_not_remembered(self, memory):
         await memory.clear("保健品")
 
         await memory.remember(
@@ -37,8 +44,7 @@ class TestAgentMemory:
         assert len(entries) == 0  # 低分不记录
 
     @pytest.mark.asyncio
-    async def test_recall_similar(self):
-        memory = AgentMemory()
+    async def test_recall_similar(self, memory):
         await memory.clear()
 
         await memory.remember(
@@ -59,16 +65,14 @@ class TestAgentMemory:
         assert len(similar) >= 1
 
     @pytest.mark.asyncio
-    async def test_stats(self):
-        memory = AgentMemory()
+    async def test_stats(self, memory):
         stats = await memory.stats()
         assert "total_entries" in stats
         assert "by_category" in stats
         assert "avg_score" in stats
 
     @pytest.mark.asyncio
-    async def test_category_isolation(self):
-        memory = AgentMemory()
+    async def test_category_isolation(self, memory):
         await memory.clear()
 
         await memory.remember(

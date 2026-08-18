@@ -2,7 +2,7 @@
 
 import random
 import asyncio
-from typing import Callable, Awaitable, Optional
+from typing import Any, Callable, Awaitable, Optional
 
 
 class RetryConfig:
@@ -33,7 +33,7 @@ async def with_retry(
     fn: Callable[[], Awaitable],
     config: Optional[RetryConfig] = None,
     retryable_errors: tuple = (Exception,),
-) -> any:
+) -> Any:
     """用指数退避 + Jitter 重试 async 函数"""
     cfg = config or RetryConfig()
     last_error = None

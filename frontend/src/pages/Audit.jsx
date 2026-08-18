@@ -1,27 +1,40 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { getAudit } from '../api'
 
 export default function Audit() {
+  // 输入框状态与已提交查询条件分离（审计修复：此前每次击键都触发请求）
   const [sessionId, setSessionId] = useState('')
   const [agent, setAgent] = useState('')
   const [date, setDate] = useState('')
+  const [query, setQuery] = useState({ sessionId: '', agent: '', date: '' })
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const seqRef = useRef(0)  // 过期响应丢弃（竞态防护）
 
   const refresh = useCallback(async () => {
+    const seq = ++seqRef.current
     setLoading(true)
     try {
-      const d = await getAudit({ sessionId, agent, date })
+      const d = await getAudit({ sessionId: query.sessionId, agent: query.agent, date: query.date })
+      if (seq !== seqRef.current) return
       setData(d)
       setError('')
     } catch (err) {
+      if (seq !== seqRef.current) return
       setError(err.message || '查询审计日志失败')
     }
-    setLoading(false)
-  }, [sessionId, agent, date])
+    if (seq === seqRef.current) setLoading(false)
+  }, [query])
 
   useEffect(() => { refresh() }, [refresh])
+
+  function clearAll() {
+    setSessionId('')
+    setAgent('')
+    setDate('')
+    setQuery({ sessionId: '', agent: '', date: '' })
+  }
 
   return (
     <div>
@@ -48,10 +61,10 @@ export default function Audit() {
           </div>
         </div>
         <div className="flex gap-1 mt-2">
-          <button className="btn btn-primary btn-sm" onClick={refresh} disabled={loading}>
+          <button className="btn btn-primary btn-sm" onClick={() => setQuery({ sessionId, agent, date })} disabled={loading}>
             {loading ? '查询中...' : '查询'}
           </button>
-          <button className="btn btn-ghost btn-sm" onClick={() => { setSessionId(''); setAgent(''); setDate('') }}>
+          <button className="btn btn-ghost btn-sm" onClick={clearAll}>
             清空条件
           </button>
         </div>

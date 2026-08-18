@@ -16,13 +16,40 @@ def _workflows_dir() -> Path:
     return Path(__file__).parent.parent.parent / "config" / "workflows"
 
 
-def load_template(name: str) -> dict:
-    """加载模板 YAML（不存在返回空 dict）"""
+def _safe_template_path(name: str) -> Path | None:
+    """把用户提供的模板名解析为安全工作流路径；非法（穿越/盘符/隐藏）返回 None。
+
+    修复审计 CRITICAL：`load_template` 曾直接 `_workflows_dir() / f"{name}.yaml"`
+    拼接，Windows 下 `..%5C..%5Cconfig%5Csecrets` 可穿越读取 config/secrets.yaml。
+    """
+    if not isinstance(name, str) or not name.strip():
+        return None
+    if any(ch in name for ch in ("/", "\\", ":", "\x00")):
+        return None
+    if name.startswith("_") or ".." in name or name in (".", ".."):
+        return None
+    # 白名单断言：最终文件名必须等于模板名（拦截一切盘符/目录形态）
     path = _workflows_dir() / f"{name}.yaml"
-    if not path.exists():
+    if path.name != f"{name}.yaml":
+        return None
+    return path
+
+
+def load_template(name: str) -> dict:
+    """加载模板 YAML（不存在或非法名称返回空 dict）"""
+    path = _safe_template_path(name)
+    if path is None or not path.exists():
         return {}
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
+
+
+def resolve_template_path(name: str) -> Path | None:
+    """导出等场景的安全路径解析（已校验，失败返回 None）"""
+    path = _safe_template_path(name)
+    if path is None or not path.exists():
+        return None
+    return path
 
 
 def list_templates() -> list[dict]:

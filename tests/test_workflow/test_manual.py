@@ -94,6 +94,31 @@ class TestManualMode:
         assert job.status in (JobStatus.CANCELLED, JobStatus.PAUSED)
 
     @pytest.mark.asyncio
+    async def test_retry_step_while_paused_restarts(self, engine, store, job_inputs):
+        """审计修复：手动挡暂停中 retry_step 会取消旧任务并真正重启（此前任务卡死）"""
+        job = templates.instantiate("scene_suite", job_inputs, mode="manual")
+        await store.create_job(job)
+        await engine.start(job)
+        await _wait_done_paused(store, job.job_id, ["validate"])
+
+        # 引擎任务仍在等待推进信号（未 done）→ 触发 cancel→start 竞态路径
+        await engine.retry_step(job.job_id, "validate")
+        await _wait_done_paused(store, job.job_id, ["validate"])
+
+        # 证明 validate 真的被重跑：step_retrying 事件已记录（attempt 语义为
+        # 单次执行内的重试计数，重置后重跑从 1 重新累计，不能用 attempt>=2 断言）
+        events = await store.get_events(job.job_id)
+        assert any(ev["event"] == "step_retrying" for ev in events), "缺少 step_retrying 事件"
+        steps = await store.get_steps(job.job_id)
+        validate = next(s for s in steps if s.node == "validate")
+        assert validate.status == StepStatus.SUCCEEDED
+
+        await engine.control(job.job_id, "resume")
+        await asyncio.wait_for(engine._runtimes[job.job_id].task, timeout=60)
+        job = await store.get_job(job.job_id)
+        assert job.status == JobStatus.COMPLETED
+
+    @pytest.mark.asyncio
     async def test_unknown_action_rejected(self, engine, store, job_inputs):
         job = templates.instantiate("scene_suite", job_inputs, mode="auto")
         await store.create_job(job)

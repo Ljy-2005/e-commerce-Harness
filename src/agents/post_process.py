@@ -1,5 +1,6 @@
 """图像后处理员 — 去背景 + 增强，纯本地处理无 LLM 依赖"""
 
+import asyncio
 import base64
 import io
 from src.agents.base import BaseAgent
@@ -59,7 +60,6 @@ class PostProcessAgent(BaseAgent):
         raw = base64.b64decode(b64_data)
 
         # rembg 处理（在线程池中运行，避免阻塞事件循环）
-        import asyncio
         loop = asyncio.get_running_loop()
         output_bytes = await loop.run_in_executor(None, self._rembg_remove, raw)
 

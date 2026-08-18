@@ -106,6 +106,16 @@ class TestCreateSession:
         assert body.get("session_id")
         assert body.get("preprocess", {}).get("total") == 1
 
+    def test_oversized_upload_rejected_413(self):
+        """审计修复：上传超限（>20MB）在读取阶段即 413，防内存耗尽 DoS"""
+        resp = client.post(
+            "/api/sessions",
+            data={"platform": "taobao", "product_info": "x"},
+            headers={"X-Tenant-ID": "default"},
+            files=[("files", ("big.jpg", b"\x00" * (20 * 1024 * 1024 + 1), "image/jpeg"))],
+        )
+        assert resp.status_code == 413
+
     def test_invalid_file_type_rejected(self):
         """非图片文件被拒绝"""
         resp = client.post(

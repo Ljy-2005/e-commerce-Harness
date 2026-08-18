@@ -72,3 +72,28 @@ class TestValidate:
     def test_invalid_node_type(self):
         tpl = {"name": "bad", "nodes": {"a": {"type": "magic"}}}
         assert templates.validate_template(tpl, set())
+
+
+class TestPathTraversalGuard:
+    """审计修复：模板名路径穿越防护（CRITICAL——此前可读 config/secrets.yaml）"""
+
+    @pytest.mark.parametrize("name", [
+        "..\\..\\config\\secrets",
+        "../../config/secrets",
+        "..%5C..%5Cconfig%5Csecrets",
+        "C:secrets",
+        "foo:bar",
+        "_hidden",
+        "",
+        "..",
+        ".",
+        "../secrets",
+    ])
+    def test_malicious_names_rejected(self, name):
+        assert templates.load_template(name) == {}
+        assert templates.resolve_template_path(name) is None
+
+    def test_valid_names_still_work(self):
+        for t in templates.list_templates():
+            assert templates.load_template(t["template_name"]).get("name")
+            assert templates.resolve_template_path(t["template_name"]) is not None

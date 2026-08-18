@@ -1,5 +1,6 @@
-"""API 鉴权 — API Key / Bearer Token 验证
+"""API 鉴权 — API Key / Bearer Token 验证（API 层，PRD D4）
 
+依赖 FastAPI/Starlette，故位于 src/api/ 而非 core/（保持 core 不依赖上层的方向）。
 通过 ECOMM_API_KEY 环境变量配置。
 设置后，所有 /api/* 请求必须携带有效 Key。
 /health 和 /docs 路径始终放行。
@@ -19,6 +20,7 @@ _PUBLIC_PREFIXES = ("/health", "/docs", "/redoc", "/openapi.json")
 # 简易 IP 限流：每分钟最多 N 次失败尝试
 _AUTH_FAILURES: dict[str, list[float]] = defaultdict(list)
 _AUTH_MAX_FAILURES_PER_MINUTE = 10
+_AUTH_MAX_IP_ENTRIES = 10_000     # IP 字典膨胀阈值（超过则清扫过期条目）
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
@@ -61,10 +63,16 @@ class AuthMiddleware(BaseHTTPMiddleware):
         ip = request.client.host if request.client else "unknown"
         now = time.monotonic()
 
-        # 清理旧记录
+        # 清理旧记录（审计修复：防 IP 字典无限增长——过期条目即移除，
+        # 并在字典膨胀时做一次全局清扫）
         cutoff = now - 60
-        _AUTH_FAILURES[ip] = [t for t in _AUTH_FAILURES[ip] if t > cutoff]
-        _AUTH_FAILURES[ip].append(now)
+        remaining = [t for t in _AUTH_FAILURES[ip] if t > cutoff]
+        remaining.append(now)
+        _AUTH_FAILURES[ip] = remaining
+        if len(_AUTH_FAILURES) > _AUTH_MAX_IP_ENTRIES:
+            stale = [k for k, v in _AUTH_FAILURES.items() if not any(t > cutoff for t in v)]
+            for k in stale:
+                del _AUTH_FAILURES[k]
 
         if len(_AUTH_FAILURES[ip]) > _AUTH_MAX_FAILURES_PER_MINUTE:
             return JSONResponse(

@@ -1,8 +1,8 @@
 # Workflow 编排层设计文档
 
-> 版本：v0.2（Phase 1 已实现）
+> 版本：v0.4（Phase 1-4a 已实现）
 > 日期：2026-08-16
-> 状态：M1 已交付（见 §13 实施记录），M2-M4 待实施
+> 状态：M1-M5a 全部交付（见 §11 里程碑与 §13 实施记录）；M5b 候选见 progress.md §5.3
 > 参考：OiiOii 2.0 的产品范式（智能画布 / Skill 库 / 一键拉片复刻 / 7-Agent 团队 / 自动挡·手动挡）
 
 ---
@@ -24,9 +24,9 @@ E-Commerce Harness 目前是「单次会话的智能群聊引擎 + 可靠性壳�
 | OiiOii 概念 | 本项目对应物 | 状态 |
 |------------|-------------|------|
 | 智能画布（节点化工作流） | 商品图工作流画布（见 §8 前端） | ✅ 已建（M1） |
-| Skill 库（预制技能模板） | 工作流模板库 `config/workflows/*.yaml` | ✅ 已建（M1/M3，5 个模板） |
+| Skill 库（预制技能模板） | 工作流模板库 `config/workflows/*.yaml` | ✅ 已建（M1/M3/M4，6 个模板） |
 | 一键拉片复刻 | 一键风格复刻（参考图 → 拆解 → 融合提示词） | ✅ 已建（M3） |
-| 7-Agent 团队 + 代理对话 | 已有 8 Agent + 群聊直播；用户插话指挥 | ✅ 插话已建（M3，WS 双向 + REST） |
+| 7-Agent 团队 + 代理对话 | 已有 9 Agent + 群聊直播；用户插话指挥 | ✅ 插话已建（M3，WS 双向 + REST） |
 | 自动挡 / 手动挡 | 自动执行 / 逐步执行（每步暂停等指令） | ✅ 已建（M1） |
 
 ### 1.3 设计原则（沿用项目既有决策）
@@ -322,11 +322,14 @@ batches(batch_id, template_name, tenant_id, status, total, done, failed,
 | `POST` | `/api/workflows/templates/{name}/instantiate` | 实例化 → 创建 job（body = inputs） |
 | `GET` | `/api/workflows/jobs` | 作业列表（租户隔离，分页） |
 | `GET` | `/api/workflows/jobs/{id}` | 作业详情（含全部 steps + 事件流） |
-| `POST` | `/api/workflows/jobs/{id}/control` | `{action: run_next\|pause\|resume\|retry_step\|skip_step\|cancel, step_id?}` 手动挡控制 |
-| `POST` | `/api/workflows/jobs/{id}/decision` | 人工节点决策 `{action: approve\|retry\|reject, comment?}` |
+| `POST` | `/api/workflows/jobs/{id}/control` | `{action: run_next\|pause\|resume\|retry_step\|skip_step\|cancel, step_node?}` 手动挡控制（实际字段为 `step_node`） |
+| `POST` | `/api/workflows/jobs/{id}/decision` | 人工节点决策 `{action: approve\|retry\|reject}`（`comment` 字段未实现，见 §12 开放问题） |
 | `POST` | `/api/workflows/jobs/{id}/replicate` | 一键风格复刻：上传参考图 → 拆解 → 融合提示词重跑（M3） |
 | `POST` | `/api/workflows/batches` | 创建批量任务 |
+| `GET` | `/api/workflows/batches` | 批量任务列表 |
 | `GET` | `/api/workflows/batches/{id}` | 批量进度 |
+| `GET` | `/api/workflows/batches/report` | 批量报表（总览/模板成功率/耗时分布/失败原因 Top-5，租户隔离；M5，须声明在 `/{id}` 之前） |
+| `POST` | `/api/workflows/batches/{id}/control` | 批量控制 `{action: pause\|resume\|cancel\|retry_failed}` |
 | `GET` | `/api/workflows/templates/{name}/export` | 模板导出（原始 YAML，M4） |
 | `POST` | `/api/workflows/templates/import` | 模板导入（YAML 校验/防覆盖/force，M4） |
 | `POST` | `/api/webhooks/workflows/{id}/decision` | 入站 Webhook 回调触发审批决策（`X-Webhook-Token` 鉴权，M4） |
@@ -363,7 +366,7 @@ batches(batch_id, template_name, tenant_id, status, total, done, failed,
 
 ---
 
-## 9. 内置 Skill 库（Phase 1 交付 3 个模板）
+## 9. 内置 Skill 库（当前 6 个模板）
 
 | 模板 | 节点链 | 卖点 |
 |------|--------|------|
@@ -371,6 +374,8 @@ batches(batch_id, template_name, tenant_id, status, total, done, failed,
 | `scene_suite` 场景图套装 | 分析→提示词(场景加权)→生图×2→对比审查(A/B 生成模式) | 生活方式场景图 |
 | `compliance_hardened` 合规加固 | 验证→分析→品类→提示词→生图→审查→合规→人工终审 | 保健品/化妆品强合规品类 |
 | `free_chat` 自由群聊（迁移现有模式） | group_chat 单节点 | 与现有 5 种协作模式完全等价，保证向后兼容 |
+| `style_replicate` 风格复刻（M3） | 参考图拆解 → 注入提示词 → 从 prompt 节点重跑 | 一键拉片复刻 |
+| `light_approval` 轻审批（M4） | 验证 → 人工审批（SLA 超时自动决策演示） | 审批 SLA 演示 |
 
 ---
 
@@ -397,6 +402,8 @@ batches(batch_id, template_name, tenant_id, status, total, done, failed,
 | **M2（Phase 2a）** | batch.py + 批量页 + 死信重跑 | ✅ 已交付：BatchScheduler（并发窗口/单项自动重试 2 次/死信/暂停恢复取消/断点续跑）、4 个批量端点（JSON+CSV）、前端批量页（进度/控制/死信重跑）、13 个新测试 |
 | **M3（Phase 2b）** | 一键风格复刻（新增「风格拆解员」Agent，YAML 注册零核心改动）+ 群聊插话（WS 双向指令） | ✅ 已交付：风格拆解员（插件化 class 注册，9 Agent）+ style_replicate 模板（双图片输入）+ replicate API + 引擎风格注入重跑；群聊插话（REST + WS 双向 + 前端输入框）；15 个新测试，风格要素匹配由 spy 测试验证 |
 | **M4（Phase 3）** | 审批 SLA 超时自动决策 + webhook/连接器接口 + 模板导入导出 | ✅ 已交付：human 节点 SLA（auto_approve/auto_reject/keep_waiting + 事件）；webhook_notify 出站工具 + POST /api/webhooks/workflows/{id}/decision 入站回调（token 鉴权）；模板导出/导入（校验/防覆盖/force）；演示模板 light_approval；14 个新测试 |
+| **M5a（Phase 4a）** | 批量任务报表页 | ✅ 已交付：`JobStore.get_batch_report`（总览/模板成功率/耗时直方图/失败原因 Top-5，租户隔离）+ `GET /api/workflows/batches/report` + 前端批量页「数据报表」标签（recharts 图表）；6 个新测试 |
+| **M5b（Phase 4b，候选）** | 平台级连接器（淘宝/Amazon 拉取与回传）、审批 SLA 业务矩阵 | ⏳ 待实施（见 progress.md §5.3） |
 
 ---
 

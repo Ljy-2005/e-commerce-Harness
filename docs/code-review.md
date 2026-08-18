@@ -314,3 +314,98 @@
 ---
 
 > **更新指南：** 修复一个问题后标注 `✅ fixed`。复查通过标注 `✅ verified`。
+
+## 五、复查结论（2026-08-16，审计收尾）
+
+> 经逐项代码复查，本报告列出的全部问题均已解决。CRITICAL/HIGH 由前序会话修复（见 `progress.md` §2.3），本次会话复核确认以下条目**已修复**，并对 MEDIUM/LOW 做工程化收尾：
+
+| 条目 | 结论 | 备注 |
+|------|------|------|
+| C1 `utcnow` 残留 | ✅ verified | 全局 grep 无 `utcnow` 残留 |
+| C4 Coordinator 永远 Mock | ✅ verified | `decide()` 真实 LLM 优先、失败回退 Mock（决策 5） |
+| C10 category Mock 忽略品类 | ✅ verified | `_mock_by_category(category)` 按品类分支 |
+| C14/C15/C17/C19/C20/C21/C22 | ✅ verified | CRITICAL 轮已修（is_mock_mode 9 个 Key / Flux 尺寸映射 / Seedream 单次取时 / DeepSeek 标准键 / Qwen `.get()` / HALF_OPEN 语义与并发探测） |
+| C16/C18/C23-C26 | ✅ verified | 成本口径集中 / Anthropic text parts / retry 死信 / HITL 选择性重跑 / system_prompt 计入阈值 / create_session 接入 ImageValidator |
+| M17 checkpoint 死代码 | ✅ verified | `session.py`/`engine.py`/`main.py` 启动恢复均已调用 |
+| M18 Flux Replicate model 参数 | ✅ verified | `_via_replicate(..., model=...)` 透传 |
+| M19 Flux 循环内 import | ✅ verified | `import asyncio` 已置顶 |
+| M20 `remaining()` 不 refill | ✅ verified | 先 `bucket._refill()` 再读 |
+| M21 OpenAI vision max_tokens | ✅ verified | 硬编码已升为 4096 |
+| M22 available 误报 | ✅ verified | 延迟实例化失败会置 `available=False`；`list_available()` 仍以 env 检测 + 实例化复核为准（可接受的延迟加载设计） |
+| M23 resolve 只看 requires[0] | ✅ verified | 已校验 Provider 能力是 requires 的超集 |
+| M24 broadcaster 竞态 | ✅ verified | `list(...)` 快照遍历 |
+| M25 audit 同步 IO 阻塞 | ✅ verified | `asyncio.Lock` + `run_in_executor` |
+| M26 CancelledError 误熔断 | ✅ verified | `except asyncio.CancelledError: raise` 前置 |
+| M27 压缩前无 checkpoint | ✅ verified | `engine.py` 压缩前先 `save_checkpoint` |
+| M28 duration_ms 恒 0 | ✅ verified | `result.get("elapsed_ms", 0)` |
+| M29 tokens=1 成本清零 | ✅ verified | `tokens_in=(tokens+1)//2` |
+| N16 state.status 类型 | ✅ verified | `status: RunStatus`（本次修复） |
+| N17/N18 类型标注 | ✅ verified | `Optional[RetryConfig]` / `Coroutine[Any, Any, Any]` |
+| N19 非正 timeout | ✅ verified | `ValueError` 拦截 |
+| N20 成本表模型覆盖 | ✅ verified | 6 个模型 + 未知名回退 gpt-4o 价（文档化行为） |
+| N21 `raise last_error` 不可达 | ✅ verified | 实际可达（循环耗尽后抛出），已加注释 + `type: ignore[misc]` 澄清 |
+| N22 negative_prompt 静默 | ✅ verified | `warnings.warn` 提示 |
+| N23/N24 registry 参数名/清理 | ✅ verified | `capability` 命名 / `clear()` 防旧条目 |
+| N25 post_process provider 参数 | ✅ verified | 参数已移除（纯本地 Agent） |
+| N26 compliance f-string 风险 | ✅ verified | `.replace("{category_rules}", ...)` 替代 f-string |
+| N27 input_pipeline 死代码 | ✅ verified | `ImageValidator` 已被 create_session 调用；`InputPipeline`/`OutputPipeline` 有测试覆盖 |
+| N28 /health 双遍历 | ✅ verified | `admin_status` 单循环合并 |
+
+**本次收尾新增修复**（对应 progress.md §3.2 的 MEDIUM/LOW 清单）：
+
+- 模块文档补齐：新增 `docs/modules/{workflow, auth, tenant, logging, storage, harness-extended, ab-testing, image-preprocessor}.md`，更新 `agents/api/deploy.md`（覆盖全部 56 个源文件）
+- `.env.example` 补 `ECOMM_API_KEY` / `ECOMM_WEBHOOK_TOKEN`
+- CORS 白名单收敛进 `config/default.yaml`（`app.cors_origins`）+ `config.get_cors_origins()`（env 可覆盖）
+- `main.py` 魔法数字提取为模块常量（上传上限/预处理参数/列表分页/审计条数等 9 项）
+- 清理局部 `import asyncio`（`main.py`/`post_process.py`）与内联 `__import__("datetime")`（`main.py`/`logging_config.py`）
+- `retry.py` 返回标注 `-> any` → `-> Any`
+- 加固时序脆弱测试：`test_retry_failed_reruns_dead_letter` 改为 spy 统计 instantiate 调用（消除"错过瞬时 running 状态"的偶发失败）；`test_timeout` 显式 `coro.close()` 消除 "never awaited" RuntimeWarning
+
+结论：**65 项审计问题修复率 100%**，全量 `pytest` 370 通过、前端 `npm run build` 成功。
+
+---
+
+## 六、四域审计（2026-08-18）— 第一轮修复完成 + 第二轮待办
+
+> 四个独立审计代理（安全 / 后端正确性 / 测试质量 / 前端+文档）+ 自查合并去重。
+> 关键指控全部实测复核：路径穿越（TestClient 复现读回 `config/models.yaml`）、
+> 报表 0 条目幽灵计数（临时库复现）、Provider 探测零断言（逐行确认）。
+
+### 第一轮已修复（4 CRITICAL + 10 HIGH，2026-08-18，测试 407 全绿）
+
+| 级别 | 问题 | 修复 |
+|------|------|------|
+| CRITICAL | 模板路径穿越任意 YAML 读取（Windows `%5C` 直达 `config/secrets.yaml`） | `templates._safe_template_path` 白名单（拒 `/ \ : \x00 .. _` 前缀）+ `load_template`/`resolve_template_path` 共用；export 复用安全路径；import 补 `:`/`..` 校验。测试：`TestPathTraversalGuard` 10 参数 + API 穿越 404 回归 |
+| CRITICAL | 多租户隔离失效（未知租户回退 default） | `TenantRegistry.get` 未知返回 None；`_resolve_tenant` 未知租户 403，接入 create_session / ab-test / instantiate / create_batch。测试：未知租户 403 |
+| CRITICAL | 设置写端点无鉴权开放 | `_require_admin_access`：未配置 Key 时仅本机（127.0.0.1/::1/localhost/testclient），远程 403；配置 Key 后 AuthMiddleware 全局保护；`require_api_key` 死代码保留待第二轮的 JWT 方案 |
+| CRITICAL | 前端无鉴权接线 | `api.js` 统一 `authHeaders()`（X-API-Key）+ `wsUrl` 带 `?api_key=`；Settings 页新增「前端 API Key」localStorage 输入 |
+| HIGH | 工作流控制/决策/复刻/批次控制跨租户 IDOR | 端点层 `get_job/get_batch` 后比对 tenant（与读取端点同模式）；不存在 → 404。测试：`TestTenantIsolation`（含跨租户控制 404） |
+| HIGH | WS 双端点跨租户读写 + 回放不在 try/finally | WS 接受可选 `tenant` 查询参数并过滤；`ws_session` 回放进 try/finally（防死连接残留）；`_append_interjection` 带租户校验 |
+| HIGH | `retry_step` cancel→start 竞态（job 永久卡 RUNNING） | cancel 后 `await` 旧任务完成 + `runtime.task=None` 再 `start()`（覆盖 replicate_style 共用路径）。测试：暂停中 retry_step 重启 + `step_retrying` 事件 |
+| HIGH | A/B `model_override` 从未生效（静默失真） | `BaseAgent.execute(model_override=...)` 经 ContextVar 传递，`_model_kwargs()` 优先取覆盖；删除提示词注入与死代码恢复。测试：变体级传播 + kwargs 断言 |
+| HIGH | webhook_notify SSRF | `_validate_notify_url`：仅 http/https、拒绝回环/私网/链路本地/保留/组播（IP 字面量 + 主机名解析双路径，解析失败放行防离线误伤）。测试：8 组恶意 URL + 公网不误伤 |
+| HIGH | 上传先读后验内存 DoS | `_read_upload_limited` 分块读取、超 20MB 立即 413；三处上传（session/instantiate/replicate）接入。测试：21MB 上传 → 413 |
+| HIGH | 批量子任务无上限 | `MAX_BATCH_ITEMS=100`，JSON/CSV 两路统一拦截。测试：101 项 → 400 |
+| HIGH | 测试破坏真实数据（secrets 抹除 / memory 清空） | `test_settings` 快照-还原（两分支）；`test_agent_memory` 注入 tmp 目录 |
+| HIGH | 前端路由参数变化状态残留 | `Session.jsx`/`WorkflowJob.jsx` 在 id 变化时重置 state |
+| HIGH | WS 断线不重连（群聊冻结） | `useWebSocket` 3s 自动重连（卸载/切会话停止） |
+| 附带 | `get_batch_report` 0 条目幽灵计数 | LEFT JOIN NULL 行跳过。测试：0 条目批次 → item_count 0 |
+
+**第一轮补充修复**（后端审计 MEDIUM/LOW 低成本项，2026-08-18，测试 410 全绿）：
+
+- `WAITING_HUMAN` 下 cancel 死锁 → cancel 同时唤醒 `human_event`，且事件创建提前到状态落库之前（消除竞态窗口）。测试：`test_cancel_wakes_waiting_human`
+- Provider 以 `{"error": ...}` 返回非 200 时不计成功 → 熔断 `record_failure()`（此前持续 5xx 永不熔断）。测试：`test_error_dict_opens_circuit`
+- 报表直方图仅统计终态条目（running 项的部分耗时不再计入）。测试：`test_report_running_item_duration_excluded`
+- 鉴权失败 IP 字典加膨胀清扫（`_AUTH_MAX_IP_ENTRIES=10000`）
+- `save_runtime_secrets` 写后 `chmod 0o600`（POSIX）
+- `_job_payload` 对非 list/str 的 `product_images` 不再 `len()` 崩溃
+- 删除 `create_session` 的死代码 `if not files`（`File(...)` 已强制）
+
+### 第二轮待办（MEDIUM ~25 / LOW ~15，未开始）
+
+- **正确性**：HITL 双跑竞态（`/decision` 并发 CAS）+ `_workflow_index` 被 `reset()` 抵消；WAITING_HUMAN 下 cancel 死锁；`update_batch_counts` 绝对覆盖与 `increment_batch` 竞态；`retry_failed` 终态竞态；`_job_payload` 对非 list `product_images` TypeError；直方图把 running 项部分耗时计入
+- **可靠性**：Provider 非 200 error dict 不触发熔断（`record_success` 无条件）；限流 `acquire` 负 tokens/无界等待；`AuditLogger` 实例级锁失效（改模块级锁 + to_thread）
+- **资源**：Session TTL（`session_ttl_hours` 死配置）；`_runtimes` 字典终态清理；鉴权 IP 字典空列表 pop；SQLite 连接显式 close；checkpoint/agent_memory 同步 IO 转 `to_thread`
+- **安全**：`/api/audit`、`/api/memory/*` 租户过滤（审计条目需补 tenant 字段）；`_mask_key` 仅显示布尔；secrets.yaml `chmod 600`（POSIX）；A/B variants/review_count 上限；`hmac.compare_digest`；公开前缀精确匹配；C2 凭据绑定租户（架构级，待用户决策）
+- **测试**：鉴权矩阵（401/429/WS 4001）零覆盖；熔断器全局单例污染；Provider 探测零断言（`test_new_providers`）；CSV GBK/BOM 分支；路径穿越断言恒真（`test_main.py:210`）；WS 404 测试无法失败；cancel 断言过宽；Audit 页防抖
+- **前端/文档**：Audit 页击键请求无防抖/取消；批量创建后详情 items 为空；版本 0.2.0 vs 0.1.0 漂移；README/文档 Agent 数、模板数漂移

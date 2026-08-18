@@ -1,13 +1,13 @@
 # Agents — 多智能体层
 
-> 覆盖: `src/agents/registry.py`, `src/agents/base.py`, `src/agents/coordinator.py`, `src/agents/analyst.py`, `src/agents/category.py`, `src/agents/prompt_gen.py`, `src/agents/image_gen.py`, `src/agents/reviewer.py`, `src/agents/compliance.py`, `src/agents/post_process.py`, `config/agents/*.yaml`, `config/prompts/*.yaml`
+> 覆盖: `src/agents/registry.py`, `src/agents/base.py`, `src/agents/coordinator.py`, `src/agents/analyst.py`, `src/agents/category.py`, `src/agents/prompt_gen.py`, `src/agents/image_gen.py`, `src/agents/reviewer.py`, `src/agents/compliance.py`, `src/agents/post_process.py`, `src/agents/style_analyst.py`, `config/agents/*.yaml`, `config/prompts/*.yaml`
 
 ## 功能
 
-Agent 层是系统的"脑"。8 个 Agent 在中心决策者的协调下，像群聊一样协作。
+Agent 层是系统的"脑"。9 个 Agent 在中心决策者的协调下，像群聊一样协作。
 
 - **Agent 不绑定模型** — 只声明能力需求（`requires: ["vision"]`），模型由配置决定
-- **文件即注册** — 新增 Agent = 在 `config/agents/` 新建一个 YAML 文件
+- **文件即注册** — 新增 Agent = 在 `config/agents/` 新建一个 YAML 文件（`class` 字段指向实现类，注册中心动态导入，零核心代码改动）
 - **Coordinator 自动感知** — 系统提示词从 AgentRegistry 动态生成，包含所有已注册 Agent
 
 ## Agent 池
@@ -22,6 +22,7 @@ Agent 层是系统的"脑"。8 个 Agent 在中心决策者的协调下，像群
 | 审查员 | vision | 5 维度质量评分 + pass/retry 判定 | `config/prompts/reviewer.yaml` |
 | 合规审查员 | vision | 广告法 + 平台规范检查 | `config/prompts/compliance.yaml` |
 | 图像后处理员 | local | 去背景 + 增强（纯本地计算） | 无需 Prompt |
+| 风格拆解员 | vision | 拆解参考图构图/光影/色调/元素（一键风格复刻） | `config/prompts/style_analyst.yaml` |
 
 ## 关键类
 
@@ -47,6 +48,7 @@ Agent 注册中心。启动时调用 `load_from_config(provider_registry)`：
 | 审查员 | `ReviewerAgent` |
 | 合规审查员 | `ComplianceAgent` |
 | 图像后处理员 | `PostProcessAgent` |
+| 风格拆解员 | `StyleAnalystAgent`（插件化：`_MAP` 未命中时按 YAML `class` 字段动态导入） |
 
 ### BaseAgent (`base.py`)
 Agent 抽象基类。子类实现 `_execute_impl(task_brief, session) → dict`，自动获得 retry + timeout。
@@ -115,7 +117,7 @@ system: |
 
 ## 修改指南
 
-- **新增 Agent** → 在 `config/agents/` 新建 YAML，在 `registry.py` 的 `_MAP` 中添加 `meta.name → Agent类` 映射，在 `agents/` 创建 Python 文件实现 `_execute_impl`
+- **新增 Agent** → 在 `config/agents/` 新建 YAML（`class: src.agents.xxx.ClassName` 指向实现类，注册中心动态导入，无需改核心代码；仅当类不在 `_MAP` 时才需要 YAML 提供 `class` 字段），在 `agents/` 创建 Python 文件实现 `_execute_impl`
 - **修改 Agent 能力** → 编辑对应 `config/agents/{name}.yaml` 的 `requires` 字段
 - **修改 System Prompt** → 编辑对应 `config/prompts/{name}.yaml`
 - **修改 Mock 行为** → 编辑对应的 `_mock_*()` 方法或 `src/providers/mock.py` 中的模板常量

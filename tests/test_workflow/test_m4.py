@@ -143,5 +143,70 @@ class TestWebhookNotifyTool:
         assert result["ok"] is False
         assert "connection refused" in result["error"]
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("url", [
+        "http://127.0.0.1:8000/hook",
+        "http://localhost/hook",
+        "http://169.254.169.254/latest/meta-data",
+        "http://10.0.0.5/hook",
+        "http://192.168.1.1/hook",
+        "ftp://example.com/hook",
+        "file:///etc/passwd",
+        "http://[::1]/hook",
+    ])
+    async def test_ssrf_blocked(self, url):
+        """审计修复：webhook_notify 拒绝内网/回环/私网/非 http(s) 协议"""
+        result = await run_tool("webhook_notify", {"url": url, "event": "x", "payload": {}})
+        assert result["ok"] is False
+        assert "禁止访问" in result["error"] or "仅支持" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_public_url_still_allowed(self, monkeypatch):
+        """公共域名不被误伤（example.com 解析为公网 IP）"""
+        import httpx as _httpx
+
+        class _Resp:
+            status_code = 200
+
+        class _FakeClient:
+            def __init__(self, *a, **kw):
+                pass
+            async def __aenter__(self):
+                return self
+            async def __aexit__(self, *a):
+                return False
+            async def post(self, url, json=None):
+                return _Resp()
+
+        monkeypatch.setattr(_httpx, "AsyncClient", _FakeClient)
+        result = await run_tool("webhook_notify", {
+            "url": "https://example.com/hook", "event": "x", "payload": {},
+        })
+        assert result["ok"] is True
+
     def test_tool_registered(self):
         assert "webhook_notify" in list_tools()
+
+
+class TestCancelWhileWaitingHuman:
+    """审计修复：WAITING_HUMAN 下 cancel 必须唤醒 human_event（此前 job 永久卡死）"""
+
+    @pytest.mark.asyncio
+    async def test_cancel_wakes_waiting_human(self, engine, store, job_inputs):
+        from src.workflow import templates as tpl
+        from src.workflow.models import JobStatus
+        job = tpl.instantiate("light_approval", job_inputs, mode="auto")
+        await store.create_job(job)
+        task = await engine.start(job)
+
+        for _ in range(200):
+            await asyncio.sleep(0.1)
+            j = await store.get_job(job.job_id)
+            if j.status.value == "waiting_human":
+                break
+        assert j.status.value == "waiting_human"
+
+        await engine.control(job.job_id, "cancel")
+        await asyncio.wait_for(task, timeout=30)
+        j = await store.get_job(job.job_id)
+        assert j.status.value == "cancelled"

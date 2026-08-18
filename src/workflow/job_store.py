@@ -400,3 +400,138 @@ class JobStore:
                 )
                 return cur.rowcount
         return await asyncio.to_thread(_do)
+
+    # ── 批量报表（M5） ──
+
+    _DURATION_BUCKETS = (
+        ("0-1s", 0, 1_000),
+        ("1-5s", 1_000, 5_000),
+        ("5-30s", 5_000, 30_000),
+        ("30s-2min", 30_000, 120_000),
+        ("2min+", 120_000, None),
+    )
+
+    async def get_batch_report(self, tenant_id: str = "") -> dict:
+        """聚合批量任务数据（总览 / 模板维度 / 耗时直方图 / 失败原因 Top-N）
+
+        - 条目耗时取自关联 job 的 created_at → updated_at（无 job 的死信项不计入）
+        - 失败原因归一化：取错误文本首个冒号前的前缀（如"必填输入缺失: xxx" → "必填输入缺失"）
+        - tenant_id 为空时统计全部租户（管理视角），否则仅统计该租户
+        """
+        def _do():
+            with _connect(self.db_path) as conn:
+                where = "WHERE b.tenant_id=?" if tenant_id else ""
+                params = (tenant_id,) if tenant_id else ()
+                batches = conn.execute(
+                    f"SELECT * FROM batches b {where} ORDER BY created_at DESC", params
+                ).fetchall()
+                rows = conn.execute(
+                    f"""SELECT b.template_name, i.seq, i.status AS i_status, i.error,
+                               j.cost_so_far, j.created_at AS j_created, j.updated_at AS j_updated
+                        FROM batches b
+                        LEFT JOIN batch_items i ON i.batch_id = b.batch_id
+                        LEFT JOIN jobs j ON j.job_id = i.job_id AND i.job_id != ''
+                        {where}
+                        ORDER BY b.created_at DESC, i.seq""",
+                    params,
+                ).fetchall()
+
+            # ── 聚合 ──
+            item_count = succeeded = failed = pending_or_running = 0
+            total_cost = 0.0
+            durations_ms: list[float] = []
+            template_map: dict[str, dict] = {}
+            reason_map: dict[str, int] = {}
+            batch_status: dict[str, int] = {}
+
+            for b in batches:
+                st = b["status"] or "created"
+                batch_status[st] = batch_status.get(st, 0) + 1
+
+            for r in rows:
+                if r["seq"] is None:
+                    # 0 条目批次：LEFT JOIN 产生一行全 NULL，不视为条目（审计修复）
+                    continue
+                tpl = r["template_name"]
+                t = template_map.setdefault(tpl, {
+                    "item_count": 0, "succeeded": 0, "failed": 0,
+                    "total_cost_usd": 0.0, "durations_ms": [],
+                })
+                item_count += 1
+                t["item_count"] += 1
+
+                st = r["i_status"] or "pending"
+                if st == "succeeded":
+                    succeeded += 1
+                    t["succeeded"] += 1
+                elif st == "failed":
+                    failed += 1
+                    t["failed"] += 1
+                    reason = (r["error"] or "未知错误").split(":")[0].strip()[:60]
+                    reason_map[reason] = reason_map.get(reason, 0) + 1
+                else:
+                    pending_or_running += 1
+
+                cost = r["cost_so_far"] or 0.0
+                total_cost += cost
+                t["total_cost_usd"] += cost
+
+                # 审计修复：仅终态条目计入耗时分布（running 条目的 job 时间戳是部分耗时）
+                jc, ju = _parse_dt(r["j_created"]), _parse_dt(r["j_updated"])
+                if st in ("succeeded", "failed") and jc and ju and ju >= jc:
+                    dms = (ju - jc).total_seconds() * 1000
+                    durations_ms.append(dms)
+                    t["durations_ms"].append(dms)
+
+            def _avg(xs: list[float]) -> float:
+                return round(sum(xs) / len(xs), 1) if xs else 0.0
+
+            def _rate(ok: int, bad: int) -> float:
+                return round(ok / (ok + bad), 4) if (ok + bad) else 0.0
+
+            by_template = [
+                {
+                    "template_name": name,
+                    "item_count": t["item_count"],
+                    "succeeded": t["succeeded"],
+                    "failed": t["failed"],
+                    "success_rate": _rate(t["succeeded"], t["failed"]),
+                    "total_cost_usd": round(t["total_cost_usd"], 6),
+                    "avg_duration_ms": _avg(t["durations_ms"]),
+                }
+                for name, t in sorted(template_map.items())
+            ]
+
+            histogram = [
+                {
+                    "bucket": label,
+                    "count": sum(
+                        1 for d in durations_ms
+                        if d >= lo and (hi is None or d < hi)
+                    ),
+                }
+                for label, lo, hi in self._DURATION_BUCKETS
+            ]
+
+            failure_reasons = [
+                {"reason": k, "count": v}
+                for k, v in sorted(reason_map.items(), key=lambda kv: (-kv[1], kv[0]))[:5]
+            ]
+
+            return {
+                "overview": {
+                    "batch_count": len(batches),
+                    "item_count": item_count,
+                    "succeeded": succeeded,
+                    "failed": failed,
+                    "pending_or_running": pending_or_running,
+                    "success_rate": _rate(succeeded, failed),
+                    "total_cost_usd": round(total_cost, 6),
+                    "avg_item_duration_ms": _avg(durations_ms),
+                },
+                "batch_status": batch_status,
+                "by_template": by_template,
+                "duration_histogram": histogram,
+                "failure_reasons": failure_reasons,
+            }
+        return await asyncio.to_thread(_do)

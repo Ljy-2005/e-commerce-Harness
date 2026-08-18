@@ -43,14 +43,16 @@ export default function ReviewChart({ review, loading }) {
     fullMark: 100,
   }))
 
-  const scoreColor = review.overall_score >= 75 ? '#22c55e' : review.overall_score >= 60 ? '#f59e0b' : '#ef4444'
+  // 审计修复：overall_score 缺失时不再渲染 "undefined/100"
+  const overall = Number.isFinite(review.overall_score) ? review.overall_score : 0
+  const scoreColor = overall >= 75 ? '#22c55e' : overall >= 60 ? '#f59e0b' : '#ef4444'
 
   return (
     <div className="card">
       <h3 className="mb-1">
         审查评分
-        <span className={`badge ml-1 ${review.overall_score >= 75 ? 'badge-ok' : review.overall_score >= 60 ? 'badge-warn' : 'badge-err'}`}>
-          {review.overall_score}/100
+        <span className={`badge ml-1 ${overall >= 75 ? 'badge-ok' : overall >= 60 ? 'badge-warn' : 'badge-err'}`}>
+          {overall}/100
         </span>
         <span className={`badge ml-1 ${review.verdict === 'pass' ? 'badge-ok' : 'badge-err'}`}>
           {review.verdict === 'pass' ? '✅ 通过' : review.verdict === 'retry' ? '🔄 重试' : review.verdict}

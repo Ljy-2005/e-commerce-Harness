@@ -33,6 +33,14 @@ export default function Session() {
     setLoading(false)
   }, [id])
 
+  // 审计修复：路由参数变化时重置状态，避免新 URL 短暂渲染上一实体的数据
+  useEffect(() => {
+    setSession(null)
+    setError('')
+    setLoading(true)
+    setTab('outputs')
+  }, [id])
+
   useEffect(() => {
     refresh()
     const t = setInterval(refresh, 3000)

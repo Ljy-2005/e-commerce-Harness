@@ -20,7 +20,7 @@ class SessionState(TypedDict, total=False):
     """
     session_id: str
     tenant_id: str                  # 租户 ID（多租户隔离）
-    status: str                     # RunStatus.value
+    status: RunStatus               # 会话运行状态（见 RunStatus 枚举）
     created_at: datetime
     updated_at: datetime
 

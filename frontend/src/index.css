@@ -212,3 +212,6 @@ table.table .mono { font-family: 'Cascadia Code', Consolas, monospace; font-size
   .sidebar .brand, .nav-link span { display: none; }
   .nav-link { justify-content: center; }
 }
+
+.page-loading { padding: 2rem; color: #94a3b8; font-size: 0.9rem; }
+

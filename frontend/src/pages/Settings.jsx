@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { getSettings, saveApiKeys } from '../api'
+import { getSettings, saveApiKeys, getStoredApiKey, setStoredApiKey } from '../api'
 import ModelMappingEditor from '../components/ModelMappingEditor'
 
 export default function Settings() {
@@ -10,6 +10,8 @@ export default function Settings() {
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
   const [showModels, setShowModels] = useState(false)
+  const [frontendKey, setFrontendKey] = useState(getStoredApiKey())
+  const [frontendMsg, setFrontendMsg] = useState('')
 
   const refresh = useCallback(async () => {
     try {
@@ -71,6 +73,29 @@ export default function Settings() {
         {settings?.mock_mode
           ? '💡 当前为 Mock 模式：未配置任何 API Key，所有 Agent 使用模板数据运行（可完整验证流程）。配置下方任意 Key 后自动切换真实 API。'
           : '✅ 已配置 API Key，Agent 将调用真实模型服务。'}
+      </div>
+
+      {/* 前端 API Key（浏览器本地，审计修复：生产启用鉴权后前端需携带 Key） */}
+      <div className="card mb-2">
+        <h3 className="mb-1">🔐 前端 API Key（浏览器本地存储）</h3>
+        <p className="text-sm mb-2" style={{ color: '#94a3b8' }}>
+          后端配置 <code className="text-xs">ECOMM_API_KEY</code> 后，所有请求需携带 Key。在此填入同一把 Key 保存在浏览器 localStorage，
+          前端将自动附加 <code className="text-xs">X-API-Key</code> 头与 WS 的 <code className="text-xs">?api_key=</code> 参数。开发模式（未配置 Key）可留空。
+        </p>
+        <div className="flex gap-1">
+          <input
+            className="input" type="password" autoComplete="off"
+            placeholder="粘贴 ECOMM_API_KEY（与后端一致）"
+            value={frontendKey}
+            onChange={e => setFrontendKey(e.target.value)}
+            style={{ maxWidth: 420 }}
+          />
+          <button className="btn btn-primary btn-sm" onClick={() => {
+            setStoredApiKey(frontendKey.trim())
+            setFrontendMsg(frontendKey.trim() ? '✅ 已保存到浏览器，后续请求自动携带' : '✅ 已清除')
+          }}>保存</button>
+          {frontendMsg && <span className="text-sm" style={{ color: '#4ade80', alignSelf: 'center' }}>{frontendMsg}</span>}
+        </div>
       </div>
 
       <div className="grid-2" style={{ alignItems: 'start' }}>

@@ -1,15 +1,18 @@
+import { lazy, Suspense } from 'react'
 import { Routes, Route, NavLink } from 'react-router-dom'
 import ErrorBoundary from './components/ErrorBoundary'
-import Dashboard from './pages/Dashboard'
-import Sessions from './pages/Sessions'
-import Session from './pages/Session'
-import Workflows from './pages/Workflows'
-import WorkflowJob from './pages/WorkflowJob'
-import Batches from './pages/Batches'
-import Agents from './pages/Agents'
-import Settings from './pages/Settings'
-import Audit from './pages/Audit'
-import Memory from './pages/Memory'
+
+// 页面级代码分割：每个页面独立 chunk，按路由懒加载（拆包优化）
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const Sessions = lazy(() => import('./pages/Sessions'))
+const Session = lazy(() => import('./pages/Session'))
+const Workflows = lazy(() => import('./pages/Workflows'))
+const WorkflowJob = lazy(() => import('./pages/WorkflowJob'))
+const Batches = lazy(() => import('./pages/Batches'))
+const Agents = lazy(() => import('./pages/Agents'))
+const Settings = lazy(() => import('./pages/Settings'))
+const Audit = lazy(() => import('./pages/Audit'))
+const Memory = lazy(() => import('./pages/Memory'))
 
 const NAV = [
   { to: '/', icon: '📊', label: '仪表盘', end: true },
@@ -21,6 +24,10 @@ const NAV = [
   { to: '/audit', icon: '📜', label: '审计日志' },
   { to: '/memory', icon: '🧠', label: '记忆库' },
 ]
+
+function PageFallback() {
+  return <div className="page-loading">页面加载中…</div>
+}
 
 export default function App() {
   return (
@@ -45,19 +52,21 @@ export default function App() {
       <main className="main">
         <div className="container">
           <ErrorBoundary>
-            <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/sessions" element={<Sessions />} />
-              <Route path="/session/:id" element={<Session />} />
-              <Route path="/workflows" element={<Workflows />} />
-              <Route path="/workflows/:id" element={<WorkflowJob />} />
-              <Route path="/batches" element={<Batches />} />
-              <Route path="/agents" element={<Agents />} />
-              <Route path="/settings" element={<Settings />} />
-              <Route path="/audit" element={<Audit />} />
-              <Route path="/memory" element={<Memory />} />
-              <Route path="*" element={<Dashboard />} />
-            </Routes>
+            <Suspense fallback={<PageFallback />}>
+              <Routes>
+                <Route path="/" element={<Dashboard />} />
+                <Route path="/sessions" element={<Sessions />} />
+                <Route path="/session/:id" element={<Session />} />
+                <Route path="/workflows" element={<Workflows />} />
+                <Route path="/workflows/:id" element={<WorkflowJob />} />
+                <Route path="/batches" element={<Batches />} />
+                <Route path="/agents" element={<Agents />} />
+                <Route path="/settings" element={<Settings />} />
+                <Route path="/audit" element={<Audit />} />
+                <Route path="/memory" element={<Memory />} />
+                <Route path="*" element={<Dashboard />} />
+              </Routes>
+            </Suspense>
           </ErrorBoundary>
         </div>
       </main>

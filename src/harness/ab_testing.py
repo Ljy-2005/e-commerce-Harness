@@ -171,24 +171,21 @@ class ABTestRunner:
         return list(await asyncio.gather(*tasks))
 
     async def _run_variant(self, agent, variant: ABVariant, config: ABTestConfig) -> VariantResult:
-        """执行单个变体（线程安全 — 不修改共享 provider 状态）"""
+        """执行单个变体（线程安全 — 不修改共享 provider 状态）
+
+        审计修复：model_override 此前只拼进 task_brief 文本（真实模型从未切换），
+        现经 BaseAgent.execute(model_override=...) 的 ContextVar 真正生效；
+        prompt_override 仍以指令注入提示词。
+        """
         start = time.monotonic()
 
-        _SENTINEL = object()
-        original_model = getattr(agent.provider, "_current_model", _SENTINEL) if agent.provider else _SENTINEL
-
         try:
-            # 模型覆盖：将 model_override 作为参数传递给 execute，而非修改共享状态
-            if variant.model_override:
-                task_brief = config.task_brief or variant.label
-                task_brief = f"{task_brief}\n\n[model_override: {variant.model_override}]"
-            else:
-                task_brief = config.task_brief or variant.label
-
+            task_brief = config.task_brief or variant.label
             if variant.prompt_override:
                 task_brief = f"{task_brief}\n\n[变体指令] {variant.prompt_override}"
 
-            output = await agent.execute(task_brief, self.session)
+            kwargs = {"model_override": variant.model_override} if variant.model_override else {}
+            output = await agent.execute(task_brief, self.session, **kwargs)
 
             elapsed = (time.monotonic() - start) * 1000
             return VariantResult(
@@ -208,10 +205,6 @@ class ABTestRunner:
                 elapsed_ms=elapsed,
                 error=str(e),
             )
-        finally:
-            # 恢复原始配置（使用 sentinel 避免 falsy 跳过）
-            if variant.model_override and agent.provider and original_model is not _SENTINEL:
-                agent.provider._current_model = original_model
 
     async def _review_variant(self, reviewer, vr: VariantResult, config: ABTestConfig) -> list[dict]:
         """使用审查员（单人或多人）评审变体结果"""

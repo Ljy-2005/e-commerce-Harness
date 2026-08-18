@@ -3,6 +3,7 @@
 import asyncio
 import time
 from abc import ABC, abstractmethod
+from contextvars import ContextVar
 
 from src.harness.retry import with_retry, RetryConfig
 from src.harness.timeout import execute_with_timeout
@@ -10,6 +11,10 @@ from src.core.models import Message
 from src.core.logging_config import get_logger
 
 _base_logger = get_logger(__name__)
+
+# 单次调用级模型覆盖（A/B 测试变体用）：ContextVar 协程上下文隔离，
+# 并发变体并行执行时互不干扰（审计修复：此前 model_override 只拼进提示词文本）
+_model_override_ctx: ContextVar[str | None] = ContextVar("model_override", default=None)
 
 
 # ── 全局 Harness 组件 ──
@@ -65,8 +70,20 @@ class BaseAgent(ABC):
         # 由注册表从 config/models.yaml 解析注入的模型名（能力声明 → 模型映射）
         self.model_name = ""
 
-    async def execute(self, task_brief: str, session) -> dict:
-        """统一执行入口 — 完整的 Harness 保护链"""
+    async def execute(self, task_brief: str, session, model_override: str | None = None) -> dict:
+        """统一执行入口 — 完整的 Harness 保护链
+
+        model_override: 单次调用级模型覆盖（A/B 变体），经 ContextVar 传给
+        _model_kwargs()，仅本次调用生效，并发调用互不干扰。
+        """
+        token = _model_override_ctx.set(model_override) if model_override else None
+        try:
+            return await self._execute_with_harness(task_brief, session)
+        finally:
+            if token is not None:
+                _model_override_ctx.reset(token)
+
+    async def _execute_with_harness(self, task_brief: str, session) -> dict:
         start_time = time.monotonic()
         provider_name = getattr(self.provider, "name", "unknown")
 
@@ -92,7 +109,12 @@ class BaseAgent(ABC):
                 lambda: execute_with_timeout(self.meta_name, _run(), self.timeout_ms),
                 config=self.retry_config,
             )
-            circuit.record_success()
+            # 审计修复：Provider 以 {"error": ...} 返回非 200 时不计成功，
+            # 持续 5xx 应触发熔断（此前无条件 record_success）
+            if isinstance(result, dict) and result.get("error"):
+                circuit.record_failure()
+            else:
+                circuit.record_success()
 
             # 4. 成本追踪
             self._track_cost(session, result, provider_name)
@@ -173,6 +195,7 @@ class BaseAgent(ABC):
         return ""
 
     def _model_kwargs(self) -> dict:
-        """把解析到的模型名传给 Provider（为空时用 Provider 自己的默认模型）"""
-        model = self._get_model()
+        """把模型名传给 Provider（单次调用级覆盖优先；为空时用 Provider 默认模型）"""
+        override = _model_override_ctx.get()
+        model = override or self._get_model()
         return {"model": model} if model else {}

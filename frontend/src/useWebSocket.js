@@ -10,33 +10,48 @@ export function useWebSocket(sessionId) {
   useEffect(() => {
     if (!sessionId) return
 
-    const url = wsUrl(`/ws/sessions/${sessionId}`)
-    let ws
-    try {
-      ws = new WebSocket(url)
-    } catch (err) {
-      setError(`WebSocket 连接失败: ${err.message}`)
-      return
-    }
-    wsRef.current = ws
+    let ws = null
+    let closed = false
+    let retryTimer = null
 
-    ws.onopen = () => { setConnected(true); setError('') }
-    ws.onclose = () => setConnected(false)
-    ws.onmessage = (e) => {
+    // 审计修复：断线自动重连（3s 后重试，卸载/切换会话时停止）
+    const connect = () => {
+      const url = wsUrl(`/ws/sessions/${sessionId}`)
       try {
-        const msg = JSON.parse(e.data)
-        setMessages(prev => {
-          if (prev.some(m => m.id === msg.id)) return prev
-          return [...prev, msg]
-        })
-      } catch {}
-    }
-    ws.onerror = () => {
-      setConnected(false)
-      setError('WebSocket 连接中断，请检查后端服务')
+        ws = new WebSocket(url)
+      } catch (err) {
+        setError(`WebSocket 连接失败: ${err.message}`)
+        return
+      }
+      wsRef.current = ws
+
+      ws.onopen = () => { setConnected(true); setError('') }
+      ws.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data)
+          setMessages(prev => {
+            if (prev.some(m => m.id === msg.id)) return prev
+            return [...prev, msg]
+          })
+        } catch {}
+      }
+      ws.onerror = () => {
+        setConnected(false)
+        setError('WebSocket 连接中断，正在重连…')
+      }
+      ws.onclose = () => {
+        setConnected(false)
+        if (!closed) retryTimer = setTimeout(connect, 3000)
+      }
     }
 
-    return () => ws.close()
+    connect()
+    return () => {
+      closed = true
+      if (retryTimer) clearTimeout(retryTimer)
+      if (ws) ws.close()
+      wsRef.current = null
+    }
   }, [sessionId])
 
   const clear = useCallback(() => setMessages([]), [])

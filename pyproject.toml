@@ -1,6 +1,6 @@
 [project]
 name = "ecommerce-harness"
-version = "0.1.0"
+version = "0.2.0"
 description = "群聊式多智能体电商商品图生成系统"
 requires-python = ">=3.12"
 dependencies = [

@@ -108,7 +108,14 @@ class TestApiKeyUpdate:
         assert resp.status_code == 400
 
     def test_set_and_clear_persists(self):
-        """设置 → 立即生效 + 落盘；清空 → 恢复"""
+        """设置 → 立即生效 + 落盘；清空 → 恢复
+
+        审计修复：finally 按快照精确还原（原值存在则写回、不存在则删除），
+        此前无条件 pop/删除会不可逆抹除开发者真实配置的 OPENAI_API_KEY。
+        """
+        from src.core.config import load_runtime_secrets, save_runtime_secrets
+        orig_env = os.environ.get("OPENAI_API_KEY")
+        orig_secrets = load_runtime_secrets()
         try:
             # 设置
             resp = client.post(
@@ -122,7 +129,6 @@ class TestApiKeyUpdate:
             assert openai["masked"] == "sk-t***2345"
             assert os.environ.get("OPENAI_API_KEY") == "sk-test-12345"
             # 已落盘
-            from src.core.config import load_runtime_secrets
             assert load_runtime_secrets().get("OPENAI_API_KEY") == "sk-test-12345"
 
             # 清空
@@ -137,10 +143,15 @@ class TestApiKeyUpdate:
             assert os.environ.get("OPENAI_API_KEY") is None
             assert "OPENAI_API_KEY" not in load_runtime_secrets()
         finally:
-            # 兜底清理：不留任何痕迹
-            os.environ.pop("OPENAI_API_KEY", None)
-            from src.core.config import save_runtime_secrets
-            save_runtime_secrets({"OPENAI_API_KEY": ""})
+            # 快照还原：原值存在则写回，否则确保删除
+            if orig_env is not None:
+                os.environ["OPENAI_API_KEY"] = orig_env
+            else:
+                os.environ.pop("OPENAI_API_KEY", None)
+            if "OPENAI_API_KEY" in orig_secrets:
+                save_runtime_secrets({"OPENAI_API_KEY": orig_secrets["OPENAI_API_KEY"]})
+            else:
+                save_runtime_secrets({"OPENAI_API_KEY": ""})
             from src.providers import reset_provider_registry
             import src.main as main_mod
             main_mod._provider_registry = reset_provider_registry()

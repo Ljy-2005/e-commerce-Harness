@@ -88,6 +88,81 @@ class TestTemplatesEndpoint:
         resp = client.post("/api/workflows/templates/white_bg_suite/instantiate", data={})
         assert resp.status_code == 400
 
+    def test_export_path_traversal_blocked(self, client):
+        """审计修复 CRITICAL：导出端点的路径穿越必须 404（此前可读 config/secrets.yaml）"""
+        import urllib.parse
+        for name in ("..\\..\\config\\secrets", "../../config/models", "..\\config\\default"):
+            encoded = urllib.parse.quote(name, safe="")
+            resp = client.get(f"/api/workflows/templates/{encoded}/export")
+            assert resp.status_code == 404, f"穿越未被拦截: {name} → {resp.status_code}"
+        # 正常模板导出仍可用
+        assert client.get("/api/workflows/templates/scene_suite/export").status_code == 200
+
+
+class TestTenantIsolation:
+    """审计修复：未知租户 403 + 跨租户 IDOR 404"""
+
+    def test_unknown_tenant_create_session_403(self, client):
+        resp = client.post(
+            "/api/sessions",
+            data={"product_info": "x", "platform": "taobao"},
+            files=[("files", ("p.jpg", _valid_jpeg_bytes(), "image/jpeg"))],
+            headers={"X-Tenant-ID": "ghost_tenant"},
+        )
+        assert resp.status_code == 403
+
+    def test_unknown_tenant_instantiate_403(self, client):
+        resp = client.post(
+            "/api/workflows/templates/scene_suite/instantiate",
+            data={"platform": "taobao"},
+            files=[("files", ("p.jpg", _valid_jpeg_bytes(), "image/jpeg"))],
+            headers={"X-Tenant-ID": "ghost_tenant"},
+        )
+        assert resp.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_cross_tenant_control_404(self, client):
+        """A 租户的 job，B 租户控制 → 404（此前可跨租户 IDOR）"""
+        job_id = await _instantiate(client, "scene_suite")
+        job = await _run_job_until_done(job_id)
+        assert job.status.value == "completed"
+        resp = await asyncio.to_thread(
+            client.post,
+            f"/api/workflows/jobs/{job_id}/control",
+            json={"action": "cancel"},
+            headers={"X-Tenant-ID": "other_tenant"},
+        )
+        assert resp.status_code == 404
+
+    def test_cross_tenant_batch_control_404(self, client):
+        from src.workflow.models import WorkflowJob
+        from datetime import datetime, timezone
+        store = main_mod._workflow_store
+        now = datetime.now(timezone.utc)
+        _run_async(store.create_batch({
+            "batch_id": "b-tenant-a", "template_name": "scene_suite", "tenant_id": "default",
+            "status": "running", "mode": "auto", "max_concurrency": 2,
+            "total": 1, "done": 0, "failed": 0,
+            "created_at": now, "updated_at": now,
+        }))
+        resp = client.post(
+            "/api/workflows/batches/b-tenant-a/control",
+            json={"action": "cancel"},
+            headers={"X-Tenant-ID": "other_tenant"},
+        )
+        assert resp.status_code == 404
+
+    def test_batch_items_cap_enforced(self, client):
+        """审计修复：单批次商品项上限"""
+        items = [{"product_info": f"商品{i}", "platform": "taobao"} for i in range(101)]
+        resp = client.post(
+            "/api/workflows/batches",
+            json={"template_name": "scene_suite", "items": items},
+            headers={"X-Tenant-ID": "default"},
+        )
+        assert resp.status_code == 400
+        assert "100" in resp.json()["detail"]
+
 
 class TestJobsEndpoint:
     @pytest.mark.asyncio
@@ -148,14 +223,16 @@ class TestHumanDecision:
         assert j.status.value == "completed"
 
     def test_bad_decision_action(self, client):
+        # 审计修复：job 不存在 → 404（此前穿透到引擎层报 400）
         resp = client.post("/api/workflows/jobs/whatever/decision", json={"action": "nuke"})
-        assert resp.status_code == 400
+        assert resp.status_code == 404
 
 
 class TestControl:
     def test_control_bad_body(self, client):
+        # 审计修复：job 不存在 → 404（此前穿透到引擎层报 400）
         resp = client.post("/api/workflows/jobs/whatever/control", json={})
-        assert resp.status_code == 400
+        assert resp.status_code == 404
 
     @pytest.mark.asyncio
     async def test_manual_mode_control_flow(self, client):
@@ -288,7 +365,8 @@ class TestBatchEndpoint:
         resp = client.get("/api/workflows/batches")
         assert resp.status_code == 200
         assert "batches" in resp.json()
-        assert client.post("/api/workflows/batches/x/control", json={}).status_code == 400
+        # 审计修复：批次不存在 → 404（此前穿透到调度器报 400）
+        assert client.post("/api/workflows/batches/x/control", json={}).status_code == 404
         assert client.post("/api/workflows/batches", json={"template_name": "nope", "items": [{}]}).status_code == 400
 
 
@@ -348,12 +426,12 @@ class TestReplicateEndpoint:
 
     def test_replicate_validation(self, client):
         assert client.post("/api/workflows/jobs/nope/replicate").status_code == 422  # 缺文件
-        # 无文件字段 → FastAPI 422；job 不存在且带文件 → 400
+        # 无文件字段 → FastAPI 422；job 不存在且带文件 → 404（审计修复：先租户/存在性校验）
         resp = client.post(
             "/api/workflows/jobs/nonexistent123/replicate",
             files=[("files", ("ref.jpg", _valid_jpeg_bytes(), "image/jpeg"))],
         )
-        assert resp.status_code == 400
+        assert resp.status_code == 404
 
 
 class TestM4Api:
@@ -461,3 +539,65 @@ nodes:
         await asyncio.wait_for(task, timeout=60)
         j = await store.get_job(job_id)
         assert j.status.value == "completed"
+
+
+class TestBatchReportEndpoint:
+    """M5 批量报表端点：GET /api/workflows/batches/report"""
+
+    async def _seed(self, client):
+        from datetime import datetime, timedelta, timezone
+        from src.workflow.models import WorkflowJob
+        store = main_mod._workflow_store
+        now = datetime.now(timezone.utc)
+        await store.create_batch({
+            "batch_id": "rp1", "template_name": "scene_suite", "tenant_id": "default",
+            "status": "partial", "mode": "auto", "max_concurrency": 2,
+            "total": 3, "done": 2, "failed": 1,
+            "created_at": now, "updated_at": now,
+        })
+        await store.create_batch_items([
+            {"batch_id": "rp1", "seq": 0, "inputs": {}, "job_id": "rj1",
+             "status": "succeeded", "updated_at": now},
+            {"batch_id": "rp1", "seq": 1, "inputs": {}, "job_id": "rj2",
+             "status": "succeeded", "updated_at": now},
+            {"batch_id": "rp1", "seq": 2, "inputs": {}, "job_id": "",
+             "status": "failed", "error": "必填输入缺失: product_images", "updated_at": now},
+        ])
+        for jid, secs in (("rj1", 2), ("rj2", 8)):
+            await store.create_job(WorkflowJob(
+                job_id=jid, template_name="scene_suite", tenant_id="default",
+                status="completed", cost_so_far=0.1,
+                created_at=now, updated_at=now + timedelta(seconds=secs),
+            ))
+
+    @pytest.mark.asyncio
+    async def test_report_shape_and_content(self, client):
+        await self._seed(client)
+        resp = await asyncio.to_thread(
+            client.get, "/api/workflows/batches/report",
+            headers={"X-Tenant-ID": "default"},
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert set(data) >= {"overview", "batch_status", "by_template",
+                             "duration_histogram", "failure_reasons"}
+        ov = data["overview"]
+        assert ov["batch_count"] == 1
+        assert ov["item_count"] == 3
+        assert ov["succeeded"] == 2 and ov["failed"] == 1
+        assert ov["success_rate"] == pytest.approx(0.6667)
+        assert data["by_template"][0]["template_name"] == "scene_suite"
+        assert data["failure_reasons"][0]["reason"] == "必填输入缺失"
+
+    def test_report_route_not_shadowed_by_batch_id(self, client):
+        """路由顺序回归：/batches/report 不能被 /batches/{batch_id} 吞掉"""
+        resp = client.get("/api/workflows/batches/report",
+                          headers={"X-Tenant-ID": "default"})
+        assert resp.status_code == 200
+        assert "overview" in resp.json()
+
+    def test_report_tenant_isolation(self, client):
+        resp = client.get("/api/workflows/batches/report",
+                          headers={"X-Tenant-ID": "ghost"})
+        assert resp.status_code == 200
+        assert resp.json()["overview"]["item_count"] == 0

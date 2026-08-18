@@ -51,11 +51,15 @@ class TestExecuteWithTimeout:
     @pytest.mark.asyncio
     async def test_zero_timeout_validation_async(self):
         """在 async 上下文中验证 timeout_ms=0 抛 ValueError"""
+        coro = _noop()
         with pytest.raises(ValueError, match="正数"):
-            await execute_with_timeout("agent", _noop(), timeout_ms=0)
+            await execute_with_timeout("agent", coro, timeout_ms=0)
+        coro.close()  # 避免 "never awaited" RuntimeWarning
 
     @pytest.mark.asyncio
     async def test_negative_timeout_validation_async(self):
         """在 async 上下文中验证 timeout_ms=-1 抛 ValueError"""
+        coro = _noop()
         with pytest.raises(ValueError, match="正数"):
-            await execute_with_timeout("agent", _noop(), timeout_ms=-1)
+            await execute_with_timeout("agent", coro, timeout_ms=-1)
+        coro.close()  # 避免 "never awaited" RuntimeWarning

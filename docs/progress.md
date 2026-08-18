@@ -12,9 +12,9 @@
 工作目录 D:\vscode-project\e-commerce Harness。
 请先读 docs/progress.md（第 0 节之外的全部内容）和 docs/workflow-design.md，
 然后按 progress.md 第 5.3 节「遗留的开放决策」选择下一项任务继续。
-常用命令：pytest（全量测试，当前 370 通过）、
+常用命令：pytest（全量测试，当前 410 通过）、
 前端 cd frontend && npm run build、
-后端 python -m uvicorn src.main:app --host 127.0.0.1 --port 8000、
+后端 python -m uvicorn src.api.main:app --host 127.0.0.1 --port 8000、
 前端开发 cd frontend && npm run dev（端口 5173）。
 服务若未运行请先启动并验证 /health。
 ```
@@ -23,16 +23,16 @@
 
 ## 1. 项目概览
 
-**群聊式多智能体电商商品图生成系统** —— 7 个 AI Agent 在中心决策者（Coordinator）的协调下，像群聊一样协作完成"商品图生成"全流程任务。
+**群聊式多智能体电商商品图生成系统** —— 9 个 AI Agent 在中心决策者（Coordinator）的协调下，像群聊一样协作完成"商品图生成"全流程任务。
 
 | 维度 | 内容 |
 |------|------|
-| 版本 | v0.1.0 |
+| 版本 | v0.2.0 |
 | 语言 / 运行时 | Python ≥ 3.12 |
 | Web 框架 | FastAPI + Uvicorn（REST + WebSocket） |
 | 前端 | React SPA（Vite） |
 | 数据库 | 文件持久化（checkpoint JSONL / 审计日志 JSONL），无外部 DB 依赖 |
-| 测试 | pytest（asyncio_mode=auto），25 个测试文件，203 个测试通过 |
+| 测试 | pytest（asyncio_mode=auto），39 个测试文件，410 个测试通过 |
 | 部署 | Docker 多阶段构建（Node 前端 + Python 后端 + Nginx） |
 
 ---
@@ -59,6 +59,10 @@
 | *（未提交）* | **Workflow M2 批量调度** | `src/workflow/batch.py`（BatchScheduler：并发窗口/单项自动重试2次/死信列表/暂停恢复取消/断点续跑，多 worker 世代计数器唤醒 + SQL 原子计数）；4 个批量端点（JSON/CSV 创建、列表、详情、控制含 retry_failed）；前端批量任务页（进度条/控制/死信重跑/逐项详情）；13 个新测试 |
 | *（未提交）* | **Workflow M3 风格复刻+插话** | 风格拆解员 Agent（插件化 class 注册，Agent 数 8→9）；style_replicate 模板（多图片输入分发）；`POST /api/workflows/jobs/{id}/replicate`（拆解→注入→重跑）；群聊插话（`POST /api/sessions/{id}/interject` + WS 双向 + 前端输入框）；15 个新测试 |
 | *（未提交）* | **Workflow M4 SLA+连接器+导入导出** | human 节点 SLA 超时自动决策（auto_approve/auto_reject/keep_waiting + 事件溯源）；webhook_notify 出站工具 + 入站回调端点（token 鉴权触发状态流转）；模板导出/导入（YAML 三级校验/防覆盖）；light_approval 演示模板；14 个新测试 |
+| *（未提交）* | **审计收尾·MEDIUM/LOW 全清** | 18 MEDIUM（文档/工程化）+ 18 LOW（类型/清理）全部完成：新增 8 个模块文档 + 更新 3 个（覆盖全部源文件）；`.env.example` 补 `ECOMM_API_KEY`/`ECOMM_WEBHOOK_TOKEN`；CORS 收敛进 `config/default.yaml` + `get_cors_origins()`；`main.py` 9 项魔法数字提取为常量；清理局部 import 与 `__import__` 残留；`state.py` 状态类型、`retry.py` 返回标注修正；加固 2 个时序脆弱测试（spy 化断言 + 协程 close）。65 项审计修复率 100%，pytest 370 全绿 |
+| *（未提交）* | **工程化收尾·分层+拆包** | PRD D4 对齐：`auth.py` 迁至 `src/api/auth.py`（core 不再依赖 FastAPI），`main.py` 迁至 `src/api/main.py`，根目录保留 `sys.modules` 别名 shim（`uvicorn src.main:app` 与测试模块属性突变兼容）；deploy/README/文档引用全部更新。前端拆包：10 页面 `React.lazy` + `manualChunks`（charts 313KB / react-vendor 165KB / vendor 40KB），入口 603KB → 6KB，build 零告警 |
+| *（未提交）* | **Workflow M5a 批量报表页** | `JobStore.get_batch_report`（总览/模板成功率/耗时直方图/失败原因 Top-5 归一化，租户隔离）+ `GET /api/workflows/batches/report`（路由置于 `/{batch_id}` 之前防吞）+ 前端批量页「📈 数据报表」标签（recharts 成功率/耗时分布图 + 失败原因条形 + 状态分布）；6 个新测试 |
+| *（未提交）* | **四域审计·第一轮修复（4 CRITICAL + 10 HIGH）** | 安全/后端/测试/前端四域审计（决策 18）：① 模板路径穿越修复（`load_template`/export/import 白名单校验，Windows `%5C` 穿越实测复现后封堵）；② 租户隔离（未知租户 403 + 工作流控制/决策/复刻/批次控制/双 WS 全量租户校验）；③ 管理面保护（dev 仅本机）+ 前端 API Key 接线（X-API-Key 头 + WS ?api_key= + 设置页输入）；④ retry_step cancel→start 竞态（await 旧任务后重建）；⑤ A/B model_override 真生效（ContextVar）；⑥ webhook SSRF 防护；⑦ 上传流式限额（413）+ 批次上限 MAX_BATCH_ITEMS=100；⑧ WS 回放进 try/finally；⑨ 测试数据安全（tmp 隔离 + secrets 快照还原）；⑩ 前端路由状态重置 + WS 断线重连。新增 31 个测试，pytest 407 全绿 |
 
 ### 2.2 功能模块完成度
 
@@ -76,8 +80,8 @@
 | 结构化日志 | ✅ 完成 | `get_logger()` + UTC 时间戳 + JSON adapter |
 | REST API | ✅ 完成 | 会话 CRUD + 列表 + 决策 + 插话 + 消息 + 记忆 + 审计 + A/B 测试 + 设置（API Key / Agent / 模型映射持久化）+ 工作流（模板/作业/控制/决策/复刻/批量/**导入导出**/**Webhook 回调**） |
 | WebSocket | ✅ 完成 | 实时群聊流（双向插话）+ 工作流事件流（已补鉴权） |
-| Workflow 编排层 | ✅ M1-M4 | `src/workflow/`：YAML 模板 DSL（6 类节点+group_chat）、极简表达式、SQLite+事件溯源、状态机（自动/手动挡、断点续跑、回跳重试、人工审批+SLA 自动决策）、6 个内置模板；批量调度器；一键风格复刻；webhook 出站/入站连接器；模板导入导出 |
-| React 前端 | ✅ 完成 | 侧边栏 9 页工作台：仪表盘 / 会话（群聊插话）/ 工作流（画廊+画布+一键复刻）/ 批量任务 / Agent 配置 / 设置 / 审计 / 记忆 |
+| Workflow 编排层 | ✅ M1-M5a | `src/workflow/`：YAML 模板 DSL（6 类节点+group_chat）、极简表达式、SQLite+事件溯源、状态机（自动/手动挡、断点续跑、回跳重试、人工审批+SLA 自动决策）、6 个内置模板；批量调度器；一键风格复刻；webhook 出站/入站连接器；模板导入导出；**批量报表（M5a）** |
+| React 前端 | ✅ 完成 | 侧边栏 9 页工作台：仪表盘 / 会话（群聊插话）/ 工作流（画廊+画布+一键复刻）/ 批量任务（列表+**数据报表**）/ Agent 配置 / 设置 / 审计 / 记忆 |
 | CLI | ✅ 完成 | `python -m src.cli run` |
 | Docker 部署 | ✅ 完成 | 多阶段构建 + 非 root 用户 + HEALTHCHECK + nginx |
 
@@ -89,18 +93,23 @@
 |------|------|--------|------|--------|
 | CRITICAL | 12 | 12 | **0** | 100% |
 | HIGH | 17 | 17 | **0** | 100% |
-| MEDIUM | 18 | 0 | **18** | 0% |
-| LOW | 18 | 0 | **18** | 0% |
+| MEDIUM | 18 | 18 | **0** | 100% |
+| LOW | 18 | 18 | **0** | 100% |
+
+> 65/65 全部修复完毕（2026-08-16 收尾）。逐项复查结论见 `docs/code-review.md` §五。
 
 ### 2.4 测试覆盖
 
-- **36 个测试文件**，**370 个测试通过**（`pytest` 全量 Mock Mode）
+- **39 个测试文件**，**410 个测试通过**（`pytest` 全量 Mock Mode，无自有 RuntimeWarning）
+- 时序加固：批量死信重跑测试改为 spy 断言（不再依赖轮询瞬时状态），全量运行多次无偶发失败
+- M5a 批量报表：聚合逻辑 3 测试（总览/模板/直方图/失败原因/租户隔离）+ 端点 3 测试（含路由防吞回归）
+- 四域审计第一轮（决策 18）：+34 测试（路径穿越 10 参数、租户 403/404、retry_step 重启、model_override 传播、SSRF 8 组、上传 413、批次上限、报表幽灵条目、熔断计 error dict、cancel 唤醒等）
 - 覆盖范围：
   - `test_api/` — FastAPI 端点测试（含设置/会话列表/密钥持久化/模型映射/群聊插话 21 个新测试）
   - `test_agents/` — 9 个 Agent 单测（含风格拆解员插件化注册）
   - `test_chat/` — 引擎 / HITL / 反幻觉 / 模式
   - `test_harness/` — 熔断 / 限流 / 重试 / 超时 / 记忆 / 成本 / 集成 / 审计 / A-B / 图片预处理
-  - `test_workflow/` — 表达式 / 模板 DSL / 引擎（分支/跳过/回跳/恢复）/ 手动挡控制 / 批量调度 / 风格复刻 / **SLA 超时决策 / webhook 工具 / 导入导出 / 入站回调** / API（94 个测试）
+  - `test_workflow/` — 表达式 / 模板 DSL / 引擎（分支/跳过/回跳/恢复）/ 手动挡控制 / 批量调度 / 风格复刻 / **SLA 超时决策 / webhook 工具 / 导入导出 / 入站回调 / 批量报表（M5a）** / API（100 个测试）
   - `test_core/`、`test_providers/` — 模型 / Mock / 新 Provider / OpenAI
 
 ---
@@ -125,24 +134,25 @@
 3. ~~`openai.py` 单测缺失~~ → ✅ 新增 `tests/test_providers/test_openai.py`（15 测试，Mock HTTP 层覆盖 chat/chat_with_vision/generate/成本估算/JSON 提示注入/错误路径/negative_prompt 告警）
 4. ~~`image_preprocessor.py` 单测缺失~~ → ✅ 新增 `tests/test_harness/test_image_preprocessor.py`（18 测试）
 
-**MEDIUM（18 个）—— 文档与工程化：**
+**MEDIUM（18 个）—— ✅ 2026-08-16 全部完成（文档与工程化）：**
 
-- 14 个模块缺少文档（`docs/modules/` 已有 8 个，`harness/ab_testing`、`harness/image_preprocessor`、`core/tenant`、`core/auth`、`core/logging_config` 等新增模块未记录）
-- `.env.example` 未含 `ECOMM_API_KEY`（鉴权新增但未写入示例）
-- CORS 白名单硬编码待收敛
-- 若干魔法数字待提取为常量
-- 其余见 `docs/code-review.md` 完整清单
+1. ~~14 个模块缺少文档~~ → ✅ 新增 `docs/modules/` 8 篇：`workflow.md`（7 模块+6 模板）、`auth.md`、`tenant.md`、`logging.md`、`storage.md`、`harness-extended.md`（限流/成本/审计/上下文/记忆/输入输出管道）、`ab-testing.md`、`image-preprocessor.md`；更新 `agents.md`（补风格拆解员）、`api.md`（端点概览刷新）、`deploy.md`（环境变量表）。全部 56 个源文件均有文档覆盖
+2. ~~`.env.example` 未含 `ECOMM_API_KEY`~~ → ✅ 补 `ECOMM_API_KEY` + `ECOMM_WEBHOOK_TOKEN`（M4 回调 token），含使用说明
+3. ~~CORS 白名单硬编码待收敛~~ → ✅ 白名单迁入 `config/default.yaml` 的 `app.cors_origins`，新增 `config.get_cors_origins()`（env `ECOMM_CORS_ORIGINS` 覆盖 → YAML → 内置默认三级回退）
+4. ~~若干魔法数字待提取为常量~~ → ✅ `main.py` 顶部 9 项常量（`MAX_UPLOAD_IMAGES`/`PREPROCESS_MAX_PIXELS`/`PREPROCESS_JPEG_QUALITY`/`MAX_CHECKPOINT_RESTORE`/`AUDIT_TAIL`/`EVENT_TAIL`/`JOB_LIST_LIMIT`/`MAX_INTERJECTION_CHARS`/`MAX_REPLICATE_IMAGES`）
+5. ~~其余见 `docs/code-review.md` 完整清单~~ → ✅ M17-M29、N16-N28 逐项复查确认已修复（详见 `code-review.md` §五 复查结论表）
 
-**LOW（18 个）—— 类型标注与清理：**
+**LOW（18 个）—— ✅ 2026-08-16 全部完成（类型标注与清理）：**
 
-- 类型标注补全（`Optional[...]`、`coro` 参数）
-- 死代码清理、`datetime.utcnow()` 残留替换等
-- 详见 `docs/code-review.md`
+- ~~类型标注补全~~ → ✅ `state.py` `status: RunStatus`、`retry.py` `-> Any`（原 `-> any` 误用内建函数名）、`timeout.py`/`retry.py` 的 `Optional`/`Coroutine` 标注已齐
+- ~~死代码清理~~ → ✅ `InputPipeline`/`OutputPipeline` 确认已有调用方与测试覆盖（非死代码）；`checkpoint.py` 已被会话/引擎/启动恢复使用
+- ~~`datetime.utcnow()` 残留替换等~~ → ✅ 全局无 `utcnow` 残留；清理 `main.py`/`post_process.py` 局部 `import asyncio`、`main.py`/`logging_config.py` 内联 `__import__("datetime")`
+- **顺带加固**：`test_retry_failed_reruns_dead_letter` 时序偶发失败（轮询错过瞬时 running 态）→ 改为 spy 统计新一轮 instantiate 调用次数（确定性断言）；`test_timeout` 补 `coro.close()` 消除 "never awaited" RuntimeWarning
 
 **架构待办（非阻塞）：**
 
-- `auth.py` 位于 `src/core/`，依赖 FastAPI（违反"core 不依赖上层"的依赖方向）→ 建议迁至 `src/api/` 或新建中间件层
-- 缺少 `src/api/` 分层：`main.py` 直接放在 `src/` 根目录，PRD D4 原设计有 `api/` 独立目录
+- ~~`auth.py` 位于 `src/core/`，依赖 FastAPI（违反"core 不依赖上层"的依赖方向）~~ → ✅ 2026-08-16 迁至 `src/api/auth.py`，core 层不再依赖 FastAPI/Starlette
+- ~~缺少 `src/api/` 分层：`main.py` 直接放在 `src/` 根目录，PRD D4 原设计有 `api/` 独立目录~~ → ✅ 2026-08-16 `main.py` 迁至 `src/api/main.py`；`src/main.py` 保留为 `sys.modules` 别名 shim（旧命令/导入路径兼容）
 
 ---
 
@@ -161,16 +171,18 @@
 
 ```
 src/
-├── core/          # 数据模型 + 配置 + 消息类型 + 租户 + 鉴权 + 日志
+├── core/          # 数据模型 + 配置 + 消息类型 + 租户 + 日志
 ├── providers/     # AI 服务商适配（7 个 Provider）
-├── agents/        # Agent 注册中心 + 8 个 Agent 实现
+├── agents/        # Agent 注册中心 + 9 个 Agent 实现
 ├── chat/          # 群聊引擎（ChatEngine + Session + Message + Broadcaster）
 ├── harness/       # 可靠性模块（重试/超时/熔断/限流/审计/记忆/预处理/A-B）
-├── storage/       # 持久化（checkpoint）
-└── main.py        # FastAPI 入口
+├── workflow/      # 工作流编排（模板/状态机/SQLite/批量）
+├── api/           # FastAPI 入口 + 鉴权中间件（PRD D4）
+├── cli.py         # CLI 入口
+└── storage/       # 持久化（checkpoint）
 ```
 
-依赖方向：`core ← providers ← agents ← chat ← api/cli`
+依赖方向：`core ← providers ← agents ← chat ← api/cli`（workflow 在 chat 之上、api 之下）
 
 ### 4.3 关键设计决策（摘自 PRD）
 
@@ -222,6 +234,10 @@ src/
 | 19 | "看 progress.md 继续" | 实现 M2 批量调度：BatchScheduler（并发/死信/控制/续跑）+ 4 批量端点 + 前端批量页，13 个新测试全绿 |
 | 20 | "继续M3" | 实现 M3：风格拆解员（插件化注册）+ style_replicate 模板 + replicate API + 群聊插话（REST/WS 双向），15 个新测试全绿 |
 | 21 | "继续M4" | 实现 M4：审批 SLA 超时自动决策 + webhook 出站/入站连接器 + 模板导入导出 + light_approval 演示模板，14 个新测试全绿 |
+| 22 | "按 progress.md 第 5.3 节开放决策选择下一项任务继续" | 选择「MEDIUM/LOW 审计收尾」：全量基线发现 1 个时序偶发失败（死信重跑轮询错过瞬时 running）→ 加固为 spy 断言；完成 18 MEDIUM（8 篇新模块文档 + 3 篇更新、.env.example 补鉴权变量、CORS 收敛进 config、main.py 魔法数字提取常量）+ 18 LOW（类型标注、局部 import/`__import__` 清理）；code-review.md 补 §五 复查结论表；pytest 370 全绿、前端 build 成功 |
+| 23 | "继续" | 继续 5.3 剩余工程化项：① auth.py 迁至 `src/api/`（修复依赖方向）+ main.py 迁入 `src/api/main.py`（PRD D4），`src/main.py` 保留 `sys.modules` 别名 shim（测试模块属性突变兼容）；② 前端拆包（10 页面 React.lazy + manualChunks），入口 603KB→6KB；pytest 370 全绿、/health 冒烟正常 |
+| 24 | "先继续吧" | 实现 Workflow M5a 批量报表：`JobStore.get_batch_report` 聚合（总览/模板成功率/耗时直方图/失败原因 Top-5 归一化）+ `GET /api/workflows/batches/report` + 前端批量页「数据报表」标签（recharts 双图 + 失败原因条形 + 状态分布）；6 个新测试全绿、build 零告警 |
+| 25 | "先检查一下现在的项目有什么问题" | 四域并行审计（安全/后端正确性/测试质量/前端+文档）+ 自查，发现 4 CRITICAL + 10 HIGH + ~25 MEDIUM + ~15 LOW；逐项核验（路径穿越、报表幽灵条目等实测复现）；经用户确认后完成第一轮修复（CRITICAL+HIGH 全清，见里程碑表），新增 31 测试，pytest 407 全绿、前端 build 成功 |
 
 ### 5.2 关键决策点
 
@@ -269,15 +285,29 @@ src/
 **决策 14：M4 连接器的边界**
 ① **SLA 归一化**：`auto_approve/auto_reject` 归一化到路由键 approve/reject，步骤输出保留原始决策 + `sla_timeout` 标记（可审计）；② **出站 best-effort**：`webhook_notify` 失败返回结构化错误而不抛异常，通知不中断主流程；③ **入站最小闭环**：webhook 接收端点复用 `decide_human` 达成"外部回调触发状态流转"验收，`ECOMM_WEBHOOK_TOKEN` 未配置即 503 停用；平台级连接器（淘宝/Amazon 商品拉取与回传）留作 M4 之外的后继工作。
 
+**决策 15：审计收尾走"复查 + 补文档 + 加固测试"三线并行**
+用户授权从 5.3 开放决策中自选任务，选择 MEDIUM/LOW 收尾使审计闭环（65/65 全绿）：① **逐项复查而非盲目标记** —— code-review.md 的 M/N 条目多数已被 CRITICAL/HIGH 轮顺带修复，本次先逐一代码核实再写复查结论表（含 3 个"部分修复/非缺陷"的诚实标注）；② **文档按关注点分组而非一文件一模块** —— 7 个 workflow 文件合一篇、7 个 harness 扩展模块合一篇，避免 docs/modules 膨胀到 20+ 文件；③ **测试加固继续 spy 化** —— 全量基线暴露 `test_retry_failed_reruns_dead_letter` 偶发失败（轮询 0.05s 错过瞬时 running 态），沿用决策 6/13 的思路改为统计新一轮 instantiate 调用次数做确定性断言，而非放宽轮询或加 sleep。
+
+**决策 16：分层迁移用 `sys.modules` 别名 shim 保兼容**
+把 `main.py` 迁入 `src/api/` 时，测试大量以 `import src.main as main_mod` + **突变模块属性**（`main_mod._provider_registry = ...`）方式 monkeypatch 端点全局状态。普通 `from src.api.main import *` 转发 shim 会把属性写入 shim 自身命名空间而端点不可见（隐性断链）。改用 `sys.modules[__name__] = _impl` 模块别名：所有 `import src.main` 拿到的是 `src.api.main` 模块对象本身，读写完全等价，测试零改动通过；同时把 deploy/README/文档的命令统一升级到 `uvicorn src.api.main:app`（shim 仅作对外兜底）。前端拆包则坚持「页面级 lazy 优先于 manualChunks」：先按路由拆 10 页（每页 4-21KB），再用 manualChunks 把 recharts+d3（313KB）从页面中抽出独立 charts chunk，实现「非图表页完全不带图表库」—— 两者叠加才把入口从 603KB 压到 6KB。
+
+**决策 17：报表聚合走 SQL 联表 + Python 归一化，路由顺序防吞**
+M5a 批量报表的三个实现要点：① **数据源联表**：条目耗时/成本取自 `batch_items LEFT JOIN jobs`（`job_id != ''` 防死信项错误关联），无 job 的死信项不计入耗时分布；② **失败原因归一化**：错误文本取首个冒号前的前缀（"必填输入缺失: product_images" → "必填输入缺失"）再聚合 Top-5，避免同类错误因参数差异被拆散；③ **路由顺序陷阱**：`GET /batches/report` 必须声明在 `/batches/{batch_id}` 之前，否则 `report` 被当作 batch_id 404 —— 用专项测试（`test_report_route_not_shadowed_by_batch_id`）锁死该回归。报表是租户隔离的聚合查询（`tenant_id=""` 时全量供管理视角）。
+
+**决策 18：四域并行审计 + 第一轮修复（4 CRITICAL + 10 HIGH）**
+"先检查项目有什么问题" → 派 4 个独立审计代理（安全/后端正确性/测试质量/前端+文档）并行扫描 + 自查，交叉印证后**关键指控全部实测复核**（路径穿越用 TestClient 复现读回 models.yaml、报表幽灵条目用临时库复现、Provider 探测零断言逐行确认）。修复遵循「先修能落地的高危项，架构级留作显式决策」：① **路径穿越**修在共享入口（`_safe_template_path` 白名单 + export 复用），import 端点补 `:`/`..` 校验——一处修复覆盖 export/instantiate/batch 三条攻击面；② **租户 IDOR**统一在端点层 `get_job/get_batch` 后比对 tenant（与读取端点同模式），WS 用可选 `tenant` 查询参数；未知租户从"回退 default"改为 403（`TenantRegistry.get` 返回 None）；③ **管理面保护**用"未配置 Key 时仅本机"的中间策略（`_require_admin_access`），把「凭据绑定租户」「每租户独立 Key」等架构级改造明确列为 C2 遗留、待用户决策；④ **A/B model_override**选择 ContextVar 而非实例属性——变体并行执行共享同一 Agent 实例，实例属性必然竞态，ContextVar 按协程上下文隔离恰好线程/并发安全，顺带删除死代码；⑤ **测试数据安全**（secrets.yaml 快照还原、memory tmp 隔离）优先于补测试——审计明确指出"新增测试会加剧污染"。
+
 ### 5.3 遗留的开放决策
 
-- **依赖方向**：`auth.py` 放 `core/` 还是迁至独立中间件层？（PRD D4 的"core 不依赖上层"原则 vs 现实实现）
-- **`src/api/` 分层**：是否按 PRD 原设计将 `main.py` 迁入 `api/` 目录？
-- **`ABTestRunner` 的 model_override 语义**：`_run_variant` 目前以提示词注入方式传递模型覆盖（避免共享 state 竞态），真实 Provider 下并不会真正切换模型。真实模型对比需在 `BaseAgent.execute` 增加 model 参数（接口级改动），暂缓。
-- **前端构建产物体积**：单 chunk 589KB（recharts 占大头），可用 `manualChunks`/动态 import 拆包优化。
-- **设置页敏感操作**：`/api/settings/*` 写操作在 `ECOMM_API_KEY` 未配置时开放（开发模式），生产环境由 AuthMiddleware 全局保护。
-- **Workflow M5 候选（原 M4 之外的后继）**：平台级连接器（淘宝/Amazon 商品库拉取与发布回传）、审批 SLA 的自动决策需结合业务审批矩阵细化、批量任务报表页（耗时分布/成功率图表）。
-- **MEDIUM/LOW 是否继续修**：18 MEDIUM（文档/工程化）+ 18 LOW（类型/清理）尚未启动，等待用户确认优先级。
+- ~~**依赖方向**：`auth.py` 放 `core/` 还是迁至独立中间件层？（PRD D4 的"core 不依赖上层"原则 vs 现实实现）~~ → ✅ 2026-08-16 迁至 `src/api/auth.py`（依赖 FastAPI/Starlette 的中间件归 API 层）
+- ~~**`src/api/` 分层**：是否按 PRD 原设计将 `main.py` 迁入 `api/` 目录？~~ → ✅ 2026-08-16 按 PRD D4 迁入 `src/api/main.py`，根目录保留 `sys.modules` 别名 shim（`uvicorn src.main:app` 与测试模块属性突变均兼容）
+- ~~**`ABTestRunner` 的 model_override 语义**：提示词注入不切换真实模型~~ → ✅ 2026-08-18 修复（决策 18）：`BaseAgent.execute(model_override=...)` 经 ContextVar 传递，`_model_kwargs()` 优先取覆盖值，并发变体互不干扰；删除提示词注入与死代码恢复
+- ~~**前端构建产物体积**：单 chunk 603KB（recharts 占大头），可用 `manualChunks`/动态 import 拆包优化~~ → ✅ 2026-08-16 完成：10 个页面 `React.lazy` 按路由拆包（每页 3.8-21KB）+ `manualChunks` 分离 `charts`（recharts+d3，仅图表页按需加载）/ `react-vendor`（165KB）/ `vendor`（40KB）；入口 chunk 603KB → 6KB，build 零告警
+- ~~**设置页敏感操作**：`/api/settings/*` 写操作在 `ECOMM_API_KEY` 未配置时开放（开发模式）~~ → ✅ 2026-08-18 修复（决策 18）：管理面增加 `_require_admin_access`——未配置 Key 时仅允许本机（127.0.0.1/::1/localhost），远程一律 403；配置 Key 后由 AuthMiddleware 全局保护
+- **Workflow M5b（剩余）**：平台级连接器（淘宝/Amazon 商品库拉取与发布回传）、审批 SLA 的自动决策需结合业务审批矩阵细化（M5a 批量报表页已于 2026-08-16 交付）
+- ~~MEDIUM/LOW 是否继续修~~ → ✅ 2026-08-16 已全部完成（决策 15），65/65 修复率 100%。
+
+> ⚠️ **2026-08-18 审计修复（决策 18）**：四域审计（安全/后端/测试/前端）共发现 4 CRITICAL + 10 HIGH 已全部修复（见 §2.1 里程碑表与 docs/code-review.md §六）；**剩余 MEDIUM ~25 条 / LOW ~15 条**（会话 TTL、AuditLogger 锁、熔断不计 5xx、HITL 双跑竞态、_runtimes 泄漏、审计/记忆租户过滤、鉴权矩阵测试等）待第二轮，清单见 docs/code-review.md §六。
 
 ---
 
@@ -291,7 +321,7 @@ pytest
 cd frontend && npm run build
 
 # 后端启动（Mock Mode）
-uvicorn src.main:app --reload --port 8000
+uvicorn src.api.main:app --reload --port 8000
 
 # Docker 部署
 docker-compose -f deploy/docker-compose.yml up -d
@@ -304,7 +334,7 @@ docker-compose -f deploy/docker-compose.yml up -d
 | 文档 | 路径 | 内容 |
 |------|------|------|
 | 产品需求文档 | `docs/prd.md` | 完整 PRD（问题、方案、决策 D1-D8、数据模型、API 契约） |
-| 代码审查报告 | `docs/code-review.md` | 65 个审计问题的完整清单与修复优先级 |
-| 模块文档 | `docs/modules/*.md` | 8 个核心模块的详细文档 |
-| **Workflow 设计** | `docs/workflow-design.md` | 编排层设计（模板 DSL / 状态机 / 批量 / 画布），借鉴 OiiOii 范式，**待评审后实施** |
+| 代码审查报告 | `docs/code-review.md` | 65 个审计问题的完整清单与修复优先级（§五：全部复查通过） |
+| 模块文档 | `docs/modules/*.md` | 16 篇：核心 8 篇 + workflow/auth/tenant/logging/storage/harness-extended/ab-testing/image-preprocessor，覆盖全部源文件 |
+| **Workflow 设计** | `docs/workflow-design.md` | 编排层设计（模板 DSL / 状态机 / 批量 / 画布），借鉴 OiiOii 范式，M1-M4 已实施 |
 | 本状态总览 | `docs/progress.md` | 进度 / 计划 / 思路 / 决策（本文档） |
