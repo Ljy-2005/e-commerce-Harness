@@ -324,12 +324,15 @@ batches(batch_id, template_name, tenant_id, status, total, done, failed,
 | `GET` | `/api/workflows/jobs/{id}` | 作业详情（含全部 steps + 事件流） |
 | `POST` | `/api/workflows/jobs/{id}/control` | `{action: run_next\|pause\|resume\|retry_step\|skip_step\|cancel, step_id?}` 手动挡控制 |
 | `POST` | `/api/workflows/jobs/{id}/decision` | 人工节点决策 `{action: approve\|retry\|reject, comment?}` |
-| `POST` | `/api/workflows/jobs/{id}/replicate` | 一键风格复刻：上传参考图 → 拆解 → 融合提示词重跑（Phase 2） |
+| `POST` | `/api/workflows/jobs/{id}/replicate` | 一键风格复刻：上传参考图 → 拆解 → 融合提示词重跑（M3） |
 | `POST` | `/api/workflows/batches` | 创建批量任务 |
 | `GET` | `/api/workflows/batches/{id}` | 批量进度 |
+| `GET` | `/api/workflows/templates/{name}/export` | 模板导出（原始 YAML，M4） |
+| `POST` | `/api/workflows/templates/import` | 模板导入（YAML 校验/防覆盖/force，M4） |
+| `POST` | `/api/webhooks/workflows/{id}/decision` | 入站 Webhook 回调触发审批决策（`X-Webhook-Token` 鉴权，M4） |
 | `WS` | `/ws/workflows/jobs/{id}` | 实时事件流（画布高亮 + 节点日志） |
 
-鉴权：全部走现有 `AuthMiddleware`（`ECOMM_API_KEY` 配置后自动保护）；租户经 `X-Tenant-ID`。
+鉴权：全部走现有 `AuthMiddleware`（`ECOMM_API_KEY` 配置后自动保护）；租户经 `X-Tenant-ID`；入站 Webhook 额外要求 `ECOMM_WEBHOOK_TOKEN`。
 
 ---
 
@@ -393,7 +396,7 @@ batches(batch_id, template_name, tenant_id, status, total, done, failed,
 | **M1（Phase 1）** | DSL + engine + job_store + expressions + tools（validate/post_process）+ 4 模板 + 全部 API + 画布页（自动/手动挡） | ✅ 已交付：54 个工作流测试通过，Mock 模式端到端跑通 4 模板，崩溃续跑/手动挡/人工审批/回跳重试均覆盖 |
 | **M2（Phase 2a）** | batch.py + 批量页 + 死信重跑 | ✅ 已交付：BatchScheduler（并发窗口/单项自动重试 2 次/死信/暂停恢复取消/断点续跑）、4 个批量端点（JSON+CSV）、前端批量页（进度/控制/死信重跑）、13 个新测试 |
 | **M3（Phase 2b）** | 一键风格复刻（新增「风格拆解员」Agent，YAML 注册零核心改动）+ 群聊插话（WS 双向指令） | ✅ 已交付：风格拆解员（插件化 class 注册，9 Agent）+ style_replicate 模板（双图片输入）+ replicate API + 引擎风格注入重跑；群聊插话（REST + WS 双向 + 前端输入框）；15 个新测试，风格要素匹配由 spy 测试验证 |
-| **M4（Phase 3）** | 审批 SLA 超时自动决策 + webhook/连接器接口 + 模板导入导出 | 外部回调触发状态流转 |
+| **M4（Phase 3）** | 审批 SLA 超时自动决策 + webhook/连接器接口 + 模板导入导出 | ✅ 已交付：human 节点 SLA（auto_approve/auto_reject/keep_waiting + 事件）；webhook_notify 出站工具 + POST /api/webhooks/workflows/{id}/decision 入站回调（token 鉴权）；模板导出/导入（校验/防覆盖/force）；演示模板 light_approval；14 个新测试 |
 
 ---
 
@@ -455,3 +458,10 @@ frontend/src/pages/Batches.jsx   ← Phase 2
 2. **多图片输入分发**：模板可声明多个 `type: images` 输入（参考图/商品图），实例化端点按 multipart 字段名分发（`reference_images=`、`product_images=`），`files=` 保持旧约定回退。注意 FastAPI/Starlette 的 UploadFile 类型不统一，文件字段用鸭子类型识别。
 3. **风格要素匹配验证**：Mock 模式下提示词生成员返回模板数据，无法断言生成图风格——改用 spy Agent 捕获任务描述，断言「[风格复刻]」要素文本确实注入（验收标准"风格要素匹配"在 Mock 下的可测化）。
 4. **replicate 重跑语义**：拆解结果存入 `job.context["_style_breakdown"]`，从 prompt 节点 `retry_step` 重跑；引擎在 `_run_agent` 中对提示词生成员的任务注入风格文本，重跑即生效。
+
+### 13.3 M4 实施补充
+
+1. **SLA 语义**：`sla_minutes > 0` 且 `on_sla_timeout ∈ {auto_approve, auto_reject}` 时启用 `asyncio.wait_for` 定时；`keep_waiting`（默认）始终等人工。超时决策记 `human_sla_timeout` 事件，步骤输出带 `sla_timeout: true` 标记；`auto_approve/auto_reject` 归一化到路由键 approve/reject。
+2. **出站连接器**：`webhook_notify` 工具为 best-effort（url 为空跳过；网络失败返回结构化错误而非抛异常），避免通知失败中断主流程。
+3. **入站连接器**：`POST /api/webhooks/workflows/{job_id}/decision` 以 `ECOMM_WEBHOOK_TOKEN`（X-Webhook-Token 头）鉴权，未配置返回 503（停用），复用 `decide_human` 触发状态流转——达成"外部回调触发状态流转"验收。
+4. **模板导入导出**：导出返回原始 YAML 文本；导入做 YAML 解析 + 结构/Agent/工具三级校验 + 路径安全（禁止 `_` 前缀与路径字符）+ 同名 force 覆盖。平台级连接器（淘宝/Amazon 回传）作为 M4 之外的后续工作。

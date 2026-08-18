@@ -145,6 +145,20 @@ export async function getWorkflowTemplates() {
   return request('/workflows/templates')
 }
 
+export async function exportTemplate(name) {
+  const res = await fetch(`${BASE}/workflows/templates/${name}/export`)
+  if (!res.ok) throw new Error(`导出失败 (${res.status})`)
+  return res.text()
+}
+
+export async function importTemplate(yaml, templateName, force = false) {
+  return request('/workflows/templates/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ yaml, template_name: templateName, force }),
+  })
+}
+
 export async function instantiateWorkflow(template, formData) {
   const res = await fetch(`${BASE}/workflows/templates/${template}/instantiate`, {
     method: 'POST',

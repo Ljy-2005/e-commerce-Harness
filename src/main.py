@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, WebSocket, WebSocketDisconnect, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 
 from src.core.state import SessionState
 from src.core.config import is_mock_mode, load_models_config, list_agent_configs, load_agent_config, _project_root
@@ -801,6 +802,83 @@ def _job_payload(job, steps: list | None = None) -> dict:
 async def workflow_templates():
     """Skill 库列表"""
     return {"templates": wf_templates.list_templates()}
+
+
+@app.get("/api/workflows/templates/{name}/export")
+async def export_template(name: str):
+    """M4 模板导出：返回原始 YAML 文本"""
+    tpl = wf_templates.load_template(name)
+    if not tpl:
+        raise HTTPException(404, f"模板 '{name}' 不存在")
+    path = _project_root() / "config" / "workflows" / f"{name}.yaml"
+    return PlainTextResponse(path.read_text(encoding="utf-8"), media_type="application/yaml")
+
+
+@app.post("/api/workflows/templates/import")
+async def import_template(request: Request):
+    """M4 模板导入：body {yaml: str, template_name?: str, force?: bool}
+
+    校验结构/Agent/工具后写入 config/workflows/{template_name}.yaml；已存在需 force=true。
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "请求体必须是 JSON")
+    raw = str(body.get("yaml", ""))
+    if not raw.strip():
+        raise HTTPException(400, "yaml 不能为空")
+    try:
+        tpl = yaml.safe_load(raw)
+    except yaml.YAMLError as e:
+        raise HTTPException(400, f"YAML 解析失败: {str(e)[:200]}")
+    if not isinstance(tpl, dict) or not tpl.get("name"):
+        raise HTTPException(400, "模板缺少 name")
+
+    template_name = str(body.get("template_name") or tpl.get("template_name") or "").strip()
+    if not template_name or "/" in template_name or "\\" in template_name or template_name.startswith("_"):
+        raise HTTPException(400, "template_name 非法（需提供且不能含路径字符）")
+
+    agent_names = {m.name for m in _agent_registry.list_all()}
+    errors = wf_templates.validate_template(tpl, agent_names)
+    if errors:
+        raise HTTPException(400, f"模板校验失败: {'; '.join(errors)}")
+    # 工具节点校验
+    from src.workflow.tools import get_tool
+    for node, cfg in (tpl.get("nodes") or {}).items():
+        if cfg.get("type") == "tool" and not get_tool(cfg.get("tool", "")):
+            raise HTTPException(400, f"节点 '{node}' 引用的工具 '{cfg.get('tool')}' 未注册")
+
+    path = _project_root() / "config" / "workflows" / f"{template_name}.yaml"
+    if path.exists() and not bool(body.get("force")):
+        raise HTTPException(400, f"模板 '{template_name}' 已存在（force=true 可覆盖）")
+    path.write_text(raw, encoding="utf-8")
+
+    imported = wf_templates.load_template(template_name)
+    return {"imported": template_name, "name": imported.get("name", template_name),
+            "node_count": len(imported.get("nodes") or {})}
+
+
+@app.post("/api/webhooks/workflows/{job_id}/decision")
+async def webhook_decision(job_id: str, request: Request):
+    """M4 入站连接器：外部系统回调触发工作流状态流转（人工审批决策）
+
+    鉴权：X-Webhook-Token 头必须等于 ECOMM_WEBHOOK_TOKEN（未配置则回调停用）。
+    Body: {"action": "approve" | "retry" | "reject"}
+    """
+    expected_token = os.getenv("ECOMM_WEBHOOK_TOKEN", "")
+    if not expected_token:
+        raise HTTPException(503, "Webhook 回调未启用（需配置 ECOMM_WEBHOOK_TOKEN）")
+    if request.headers.get("X-Webhook-Token", "") != expected_token:
+        raise HTTPException(401, "无效的 Webhook Token")
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "请求体必须是 JSON")
+    try:
+        result = await _workflow_engine.decide_human(job_id, body.get("action", ""))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"status": "accepted", **result}
 
 
 @app.post("/api/workflows/templates/{name}/instantiate")

@@ -42,6 +42,7 @@
 | *（未提交）* | **Workflow 编排层 M1** | 按 `docs/workflow-design.md` 实现：`src/workflow/` 六模块（YAML 模板 DSL / 极简表达式 / 工具注册表 / SQLite+事件溯源 / 状态机引擎 自动·手动挡+断点续跑+回跳重试+人工审批）；4 个内置模板（白底套装/场景套装/合规加固/自由群聊）；9 个 API 端点 + WS 事件流；前端工作流页（Skill 库画廊 + 画布 + 控制条）；54 个新测试 |
 | *（未提交）* | **Workflow M2 批量调度** | `src/workflow/batch.py`（BatchScheduler：并发窗口/单项自动重试2次/死信列表/暂停恢复取消/断点续跑，多 worker 世代计数器唤醒 + SQL 原子计数）；4 个批量端点（JSON/CSV 创建、列表、详情、控制含 retry_failed）；前端批量任务页（进度条/控制/死信重跑/逐项详情）；13 个新测试 |
 | *（未提交）* | **Workflow M3 风格复刻+插话** | 风格拆解员 Agent（插件化 class 注册，Agent 数 8→9）；style_replicate 模板（多图片输入分发）；`POST /api/workflows/jobs/{id}/replicate`（拆解→注入→重跑）；群聊插话（`POST /api/sessions/{id}/interject` + WS 双向 + 前端输入框）；15 个新测试 |
+| *（未提交）* | **Workflow M4 SLA+连接器+导入导出** | human 节点 SLA 超时自动决策（auto_approve/auto_reject/keep_waiting + 事件溯源）；webhook_notify 出站工具 + 入站回调端点（token 鉴权触发状态流转）；模板导出/导入（YAML 三级校验/防覆盖）；light_approval 演示模板；14 个新测试 |
 
 ### 2.2 功能模块完成度
 
@@ -57,9 +58,9 @@
 | 图片预处理 | ✅ 完成 | Pillow resize/压缩/EXIF/RGBA→RGB + rembg 去背景 |
 | 鉴权 | ✅ 完成 | API Key（X-API-Key / Bearer）+ 白名单 + IP 限流 |
 | 结构化日志 | ✅ 完成 | `get_logger()` + UTC 时间戳 + JSON adapter |
-| REST API | ✅ 完成 | 会话 CRUD + 列表 + 决策 + **插话** + 消息 + 记忆 + 审计 + A/B 测试 + 设置（API Key / Agent / 模型映射持久化）+ 工作流（模板/作业/控制/决策/**复刻**/批量） |
-| WebSocket | ✅ 完成 | 实时群聊流（**双向插话**）+ 工作流事件流（已补鉴权） |
-| Workflow 编排层 | ✅ M1-M3 | `src/workflow/`：YAML 模板 DSL（6 类节点+group_chat）、极简表达式、SQLite+事件溯源、状态机（自动/手动挡、断点续跑、回跳重试、人工审批）、5 个内置模板；批量调度器（并发/死信/控制）；一键风格复刻（风格拆解员 + 注入重跑）；连接器（M4）待实施 |
+| REST API | ✅ 完成 | 会话 CRUD + 列表 + 决策 + 插话 + 消息 + 记忆 + 审计 + A/B 测试 + 设置（API Key / Agent / 模型映射持久化）+ 工作流（模板/作业/控制/决策/复刻/批量/**导入导出**/**Webhook 回调**） |
+| WebSocket | ✅ 完成 | 实时群聊流（双向插话）+ 工作流事件流（已补鉴权） |
+| Workflow 编排层 | ✅ M1-M4 | `src/workflow/`：YAML 模板 DSL（6 类节点+group_chat）、极简表达式、SQLite+事件溯源、状态机（自动/手动挡、断点续跑、回跳重试、人工审批+SLA 自动决策）、6 个内置模板；批量调度器；一键风格复刻；webhook 出站/入站连接器；模板导入导出 |
 | React 前端 | ✅ 完成 | 侧边栏 9 页工作台：仪表盘 / 会话（群聊插话）/ 工作流（画廊+画布+一键复刻）/ 批量任务 / Agent 配置 / 设置 / 审计 / 记忆 |
 | CLI | ✅ 完成 | `python -m src.cli run` |
 | Docker 部署 | ✅ 完成 | 多阶段构建 + 非 root 用户 + HEALTHCHECK + nginx |
@@ -77,13 +78,13 @@
 
 ### 2.4 测试覆盖
 
-- **36 个测试文件**，**356 个测试通过**（`pytest` 全量 Mock Mode）
+- **36 个测试文件**，**370 个测试通过**（`pytest` 全量 Mock Mode）
 - 覆盖范围：
-  - `test_api/` — FastAPI 端点测试（含设置/会话列表/密钥持久化/模型映射/**群聊插话** 21 个新测试）
+  - `test_api/` — FastAPI 端点测试（含设置/会话列表/密钥持久化/模型映射/群聊插话 21 个新测试）
   - `test_agents/` — 9 个 Agent 单测（含风格拆解员插件化注册）
   - `test_chat/` — 引擎 / HITL / 反幻觉 / 模式
   - `test_harness/` — 熔断 / 限流 / 重试 / 超时 / 记忆 / 成本 / 集成 / 审计 / A-B / 图片预处理
-  - `test_workflow/` — 表达式 / 模板 DSL / 引擎（分支/跳过/回跳/恢复）/ 手动挡控制 / 批量调度（并发/死信/控制/续跑）/ **风格复刻（注入/多图片输入/重跑）** / API（80 个测试）
+  - `test_workflow/` — 表达式 / 模板 DSL / 引擎（分支/跳过/回跳/恢复）/ 手动挡控制 / 批量调度 / 风格复刻 / **SLA 超时决策 / webhook 工具 / 导入导出 / 入站回调** / API（94 个测试）
   - `test_core/`、`test_providers/` — 模型 / Mock / 新 Provider / OpenAI
 
 ---
@@ -204,6 +205,7 @@ src/
 | 18 | "按你的推荐来吧" | 实现 Workflow 编排层 M1：`src/workflow/` 六模块 + 4 模板 + 9 端点 + WS + 前端工作流页（画廊/画布），54 个新测试全绿 |
 | 19 | "看 progress.md 继续" | 实现 M2 批量调度：BatchScheduler（并发/死信/控制/续跑）+ 4 批量端点 + 前端批量页，13 个新测试全绿 |
 | 20 | "继续M3" | 实现 M3：风格拆解员（插件化注册）+ style_replicate 模板 + replicate API + 群聊插话（REST/WS 双向），15 个新测试全绿 |
+| 21 | "继续M4" | 实现 M4：审批 SLA 超时自动决策 + webhook 出站/入站连接器 + 模板导入导出 + light_approval 演示模板，14 个新测试全绿 |
 
 ### 5.2 关键决策点
 
@@ -248,6 +250,9 @@ src/
 **决策 13：M3 风格复刻与插话的三个设计点**
 ① **插件化注册**：`AgentMeta.class_name` + 注册中心动态导入——风格拆解员只新增 YAML 和 Agent 文件，不动核心代码，兑现 D2 的"新增 Agent 只需注册"；② **风格要素匹配的可测化**：Mock 模式下提示词生成员返回模板数据，无法断言生成图风格——用 spy Agent 捕获任务描述，断言风格文本确实注入提示词任务（验收标准的 Mock 化落地）；③ **插话语义**：用户指令作为 system 消息进群聊流，Coordinator（真实 LLM 模式）下一轮 `decide()` 读最近消息时自然感知，无需改引擎调度逻辑；Mock 模式插话仅记录展示。另：FastAPI/Starlette 的 UploadFile 类型不统一，multipart 文件字段按鸭子类型识别。
 
+**决策 14：M4 连接器的边界**
+① **SLA 归一化**：`auto_approve/auto_reject` 归一化到路由键 approve/reject，步骤输出保留原始决策 + `sla_timeout` 标记（可审计）；② **出站 best-effort**：`webhook_notify` 失败返回结构化错误而不抛异常，通知不中断主流程；③ **入站最小闭环**：webhook 接收端点复用 `decide_human` 达成"外部回调触发状态流转"验收，`ECOMM_WEBHOOK_TOKEN` 未配置即 503 停用；平台级连接器（淘宝/Amazon 商品拉取与回传）留作 M4 之外的后继工作。
+
 ### 5.3 遗留的开放决策
 
 - **依赖方向**：`auth.py` 放 `core/` 还是迁至独立中间件层？（PRD D4 的"core 不依赖上层"原则 vs 现实实现）
@@ -255,7 +260,7 @@ src/
 - **`ABTestRunner` 的 model_override 语义**：`_run_variant` 目前以提示词注入方式传递模型覆盖（避免共享 state 竞态），真实 Provider 下并不会真正切换模型。真实模型对比需在 `BaseAgent.execute` 增加 model 参数（接口级改动），暂缓。
 - **前端构建产物体积**：单 chunk 589KB（recharts 占大头），可用 `manualChunks`/动态 import 拆包优化。
 - **设置页敏感操作**：`/api/settings/*` 写操作在 `ECOMM_API_KEY` 未配置时开放（开发模式），生产环境由 AuthMiddleware 全局保护。
-- **Workflow M4 待实施**：审批 SLA 超时自动决策 + webhook/连接器（平台回传）+ 模板导入导出（见 `docs/workflow-design.md` §11）。
+- **Workflow M5 候选（原 M4 之外的后继）**：平台级连接器（淘宝/Amazon 商品库拉取与发布回传）、审批 SLA 的自动决策需结合业务审批矩阵细化、批量任务报表页（耗时分布/成功率图表）。
 - **MEDIUM/LOW 是否继续修**：18 MEDIUM（文档/工程化）+ 18 LOW（类型/清理）尚未启动，等待用户确认优先级。
 
 ---

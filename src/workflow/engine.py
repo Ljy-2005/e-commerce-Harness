@@ -390,26 +390,50 @@ class WorkflowEngine:
         await self.store.update_step(step)
         job.status = JobStatus.WAITING_HUMAN
         await self.store.update_job(job)
-        await self._emit(job_id, "human_waiting", {"node": step.node, "prompt": cfg.get("prompt", "")})
+        await self._emit(job_id, "human_waiting", {
+            "node": step.node, "prompt": cfg.get("prompt", ""),
+            "sla_minutes": cfg.get("sla_minutes", 0),
+            "on_sla_timeout": cfg.get("on_sla_timeout", "keep_waiting"),
+        })
 
         runtime.human_action = ""
         runtime.human_event = asyncio.Event()
-        if not runtime.human_action:
-            # 决策尚未到达 → 等待（decision API 会 set human_event）
-            await runtime.human_event.wait()
-        runtime.human_event = None
-        action = runtime.human_action
+        action = ""
+        sla_used = False
+        sla_minutes = float(cfg.get("sla_minutes", 0) or 0)
+        timeout_action = cfg.get("on_sla_timeout", "keep_waiting")
 
-        step.outputs = {"decision": action}
+        if not runtime.human_action:
+            if sla_minutes > 0 and timeout_action in ("auto_approve", "auto_reject"):
+                # M4 SLA 超时自动决策
+                try:
+                    await asyncio.wait_for(runtime.human_event.wait(), timeout=sla_minutes * 60)
+                except asyncio.TimeoutError:
+                    action = timeout_action
+                    sla_used = True
+                    await self._emit(job_id, "human_sla_timeout", {
+                        "node": step.node, "action": action, "sla_minutes": sla_minutes,
+                    })
+                else:
+                    action = runtime.human_action
+            else:
+                # 决策尚未到达 → 无限等待（decision API 会 set human_event）
+                await runtime.human_event.wait()
+                action = runtime.human_action
+        runtime.human_event = None
+
+        step.outputs = {"decision": action, "sla_timeout": sla_used}
         step.status = StepStatus.SUCCEEDED
         step.finished_at = _now()
         await self.store.update_step(step)
         await self._emit(job_id, "step_succeeded", {"node": step.node, "decision": action})
 
-        if action == "retry":
+        # SLA 动作归一化到路由键（auto_approve → approve，auto_reject → reject）
+        route_action = {"auto_approve": "approve", "auto_reject": "reject"}.get(action, action)
+        if route_action == "retry":
             job.context["retries"] = int(job.context.get("retries", 0)) + 1
             await self.store.update_job(job)
-        return (cfg.get("routes") or {}).get(action, graph.get(step.node))
+        return (cfg.get("routes") or {}).get(route_action, graph.get(step.node))
 
     # ── 路由与辅助 ──
 

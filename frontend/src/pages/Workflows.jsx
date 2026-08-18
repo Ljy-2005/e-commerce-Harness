@@ -1,6 +1,9 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { getWorkflowTemplates, getWorkflowJobs, instantiateWorkflow } from '../api'
+import {
+  getWorkflowTemplates, getWorkflowJobs, instantiateWorkflow,
+  exportTemplate, importTemplate,
+} from '../api'
 import { StatusBadge } from './Dashboard'
 
 const STATUS_BADGES = {
@@ -23,6 +26,42 @@ export default function Workflows() {
   const [filesByKey, setFilesByKey] = useState({})  // {输入key: [File]}
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState('')
+  const [importName, setImportName] = useState('')
+  const [importing, setImporting] = useState(false)
+  const importFileRef = useRef(null)
+
+  async function handleExport(t) {
+    try {
+      const yaml = await exportTemplate(t.template_name)
+      const blob = new Blob([yaml], { type: 'application/yaml' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${t.template_name}.yaml`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      alert('导出失败: ' + (err.message || '未知错误'))
+    }
+  }
+
+  async function handleImport() {
+    const file = importFileRef.current?.files?.[0]
+    if (!file) { alert('请选择 YAML 文件'); return }
+    if (!importName.trim()) { alert('请填写模板名称（template_name）'); return }
+    setImporting(true)
+    try {
+      const text = await file.text()
+      await importTemplate(text, importName.trim())
+      alert('✅ 模板导入成功')
+      setImportName('')
+      importFileRef.current.value = ''
+      refresh()
+    } catch (err) {
+      alert('导入失败: ' + (err.message || '未知错误'))
+    }
+    setImporting(false)
+  }
 
   const refresh = useCallback(async () => {
     try {
@@ -78,6 +117,20 @@ export default function Workflows() {
 
       {error && <div className="alert alert-error">{error}</div>}
 
+      {/* M4 模板导入 */}
+      <div className="card mb-3" style={{ padding: 14 }}>
+        <div className="flex items-center gap-1" style={{ flexWrap: 'wrap' }}>
+          <span className="strong text-sm">📥 导入模板：</span>
+          <input className="input" style={{ width: 220 }} placeholder="模板名称（template_name）"
+            value={importName} onChange={e => setImportName(e.target.value)} />
+          <input ref={importFileRef} type="file" accept=".yaml,.yml" className="text-sm" />
+          <button className="btn btn-primary btn-sm" onClick={handleImport} disabled={importing}>
+            {importing ? '导入中...' : '导入 YAML'}
+          </button>
+          <span className="text-xs text-muted">导出的模板可分享/备份，重新导入即可使用（同名需 force）</span>
+        </div>
+      </div>
+
       {/* Skill 库 */}
       <div className="grid-3 mb-3">
         {templates.map(t => (
@@ -90,7 +143,10 @@ export default function Workflows() {
               <span className="badge badge-info">{t.node_count} 个节点</span>
               <span className="badge badge-muted">v{t.version}</span>
             </div>
-            <button className="btn btn-primary" onClick={() => openTemplate(t)}>实例化 →</button>
+            <div className="flex gap-1">
+              <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => openTemplate(t)}>实例化 →</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => handleExport(t)} title="导出 YAML">📤</button>
+            </div>
           </div>
         ))}
         {templates.length === 0 && !error && (

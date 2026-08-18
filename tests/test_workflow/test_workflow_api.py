@@ -354,3 +354,110 @@ class TestReplicateEndpoint:
             files=[("files", ("ref.jpg", _valid_jpeg_bytes(), "image/jpeg"))],
         )
         assert resp.status_code == 400
+
+
+class TestM4Api:
+    """M4 — 模板导入导出 + Webhook 入站回调"""
+
+    def test_export_template(self, client):
+        resp = client.get("/api/workflows/templates/scene_suite/export")
+        assert resp.status_code == 200
+        assert "name:" in resp.text
+        assert "场景图套装" in resp.text
+
+    def test_export_nonexistent_404(self, client):
+        assert client.get("/api/workflows/templates/nope/export").status_code == 404
+
+    def test_import_roundtrip_and_duplicate(self, client):
+        from src.core.config import _project_root
+        yaml_text = '''name: M4 导入测试模板
+version: "1.0.0"
+description: 导入导出测试
+nodes:
+  check:
+    type: tool
+    tool: validate_image
+    inputs:
+      images: ["x"]
+  done:
+    type: end
+    status: completed
+'''
+        path = _project_root() / "config" / "workflows" / "m4_test_import.yaml"
+        try:
+            resp = client.post("/api/workflows/templates/import",
+                               json={"yaml": yaml_text, "template_name": "m4_test_import"})
+            assert resp.status_code == 200, resp.text
+            assert resp.json()["imported"] == "m4_test_import"
+
+            # 列表可见
+            tpls = client.get("/api/workflows/templates").json()["templates"]
+            assert any(t["template_name"] == "m4_test_import" for t in tpls)
+
+            # 同名未 force → 400；force → 200
+            assert client.post("/api/workflows/templates/import",
+                               json={"yaml": yaml_text, "template_name": "m4_test_import"}).status_code == 400
+            assert client.post("/api/workflows/templates/import",
+                               json={"yaml": yaml_text, "template_name": "m4_test_import",
+                                     "force": True}).status_code == 200
+        finally:
+            if path.exists():
+                path.unlink()
+
+    def test_import_validation(self, client):
+        assert client.post("/api/workflows/templates/import",
+                           json={"yaml": ":::bad", "template_name": "x1"}).status_code == 400
+        assert client.post("/api/workflows/templates/import",
+                           json={"yaml": "name: X\nnodes:\n  a:\n    type: agent\n    agent: 不存在\n",
+                                 "template_name": "x2"}).status_code == 400
+        assert client.post("/api/workflows/templates/import",
+                           json={"yaml": "name: X\nnodes:\n  a:\n    type: tool\n    tool: nope\n",
+                                 "template_name": "x3"}).status_code == 400
+        assert client.post("/api/workflows/templates/import",
+                           json={"yaml": "nodes: {}", "template_name": "x4"}).status_code == 400
+        assert client.post("/api/workflows/templates/import",
+                           json={"yaml": "name: X\nnodes: {}", "template_name": "bad/name"}).status_code == 400
+
+    def test_webhook_token_gate(self, client, monkeypatch):
+        monkeypatch.delenv("ECOMM_WEBHOOK_TOKEN", raising=False)
+        r = client.post("/api/webhooks/workflows/x/decision", json={"action": "approve"})
+        assert r.status_code == 503  # 未启用
+
+        monkeypatch.setenv("ECOMM_WEBHOOK_TOKEN", "secret-token")
+        r = client.post("/api/webhooks/workflows/x/decision", json={"action": "approve"})
+        assert r.status_code == 401  # 缺 token 头
+        r = client.post("/api/webhooks/workflows/x/decision", json={"action": "approve"},
+                        headers={"X-Webhook-Token": "wrong"})
+        assert r.status_code == 401
+        r = client.post("/api/webhooks/workflows/x/decision", json={"action": "approve"},
+                        headers={"X-Webhook-Token": "secret-token"})
+        assert r.status_code == 400  # token 通过，但 job 不存在
+
+    @pytest.mark.asyncio
+    async def test_webhook_triggers_state_transition(self, client, monkeypatch):
+        """M4 验收：外部回调触发工作流状态流转（人工审批 → 完成）"""
+        monkeypatch.setenv("ECOMM_WEBHOOK_TOKEN", "secret-token")
+        job_id = await _instantiate(client, "compliance_hardened")
+        engine = main_mod._workflow_engine
+        store = main_mod._workflow_store
+        job = await store.get_job(job_id)
+        task = asyncio.create_task(engine.run(job))
+
+        for _ in range(200):
+            await asyncio.sleep(0.1)
+            j = await store.get_job(job_id)
+            if j.status.value == "waiting_human":
+                break
+        assert j.status.value == "waiting_human"
+
+        resp = await asyncio.to_thread(
+            client.post,
+            f"/api/webhooks/workflows/{job_id}/decision",
+            json={"action": "approve"},
+            headers={"X-Webhook-Token": "secret-token"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "accepted"
+        await asyncio.wait_for(task, timeout=60)
+        j = await store.get_job(job_id)
+        assert j.status.value == "completed"

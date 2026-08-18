@@ -70,5 +70,28 @@ async def _post_process_images(inputs: dict) -> dict:
     return {"images": processed, "count": len(processed)}
 
 
+async def _webhook_notify(inputs: dict) -> dict:
+    """M4 出站连接器：向外部 URL 发送 JSON 通知（best-effort，不因失败中断流程）
+
+    inputs: {url, event, payload}
+    """
+    import httpx
+
+    url = str(inputs.get("url", "")).strip()
+    if not url:
+        return {"ok": True, "status_code": 0, "error": "", "note": "url 为空，跳过通知"}
+    event = inputs.get("event", "workflow_event")
+    payload = inputs.get("payload", {})
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.post(url, json={"event": event, "payload": payload})
+        return {"ok": resp.status_code < 400, "status_code": resp.status_code,
+                "error": "" if resp.status_code < 400 else f"HTTP {resp.status_code}"}
+    except Exception as e:
+        # 通知类工具 best-effort：失败返回结构化错误而不抛出
+        return {"ok": False, "status_code": 0, "error": str(e)[:200]}
+
+
 register_tool("validate_image", _validate_image)
 register_tool("post_process_images", _post_process_images)
+register_tool("webhook_notify", _webhook_notify)
