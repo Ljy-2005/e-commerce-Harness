@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import {
-  getWorkflowJob, controlWorkflow, decideWorkflow, wsUrl,
+  getWorkflowJob, controlWorkflow, decideWorkflow, replicateStyle, wsUrl,
 } from '../api'
 
 const NODE_ICONS = {
@@ -31,7 +31,25 @@ export default function WorkflowJob() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [connected, setConnected] = useState(false)
+  const [replicating, setReplicating] = useState(false)
   const wsRef = useRef(null)
+  const fileRef = useRef(null)
+
+  // M3 一键风格复刻：上传参考图 → 拆解 → 融合提示词重跑
+  async function handleReplicate(e) {
+    const file = e.target.files?.[0]
+    e.target.value = ''  // 允许重复选择同一文件
+    if (!file || replicating) return
+    setReplicating(true)
+    try {
+      const result = await replicateStyle(id, file)
+      alert(`✅ 风格拆解完成（标签: ${(result.style?.style_tags || []).join('、')}），已从提示词节点重跑`)
+      await refresh()
+    } catch (err) {
+      alert('风格复刻失败: ' + (err.message || '未知错误'))
+    }
+    setReplicating(false)
+  }
 
   const refresh = useCallback(async () => {
     try {
@@ -116,6 +134,13 @@ export default function WorkflowJob() {
           <span className="text-sm ml-1">{connected ? '🟢 实时' : '🟡 轮询'}</span>
         </div>
         <div className="flex gap-1" style={{ flexWrap: 'wrap' }}>
+          {/* M3 一键风格复刻 */}
+          <input ref={fileRef} type="file" accept="image/*" hidden
+            onChange={handleReplicate} />
+          <button className="btn btn-primary btn-sm" disabled={replicating || busy}
+            onClick={() => fileRef.current?.click()}>
+            {replicating ? '拆解风格中...' : '🎨 一键风格复刻'}
+          </button>
           {job.status === 'paused' && (
             <button className="btn btn-primary btn-sm" disabled={busy} onClick={() => handleControl('run_next')}>⏭ 运行到下一步</button>
           )}

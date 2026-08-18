@@ -20,7 +20,7 @@ export default function Workflows() {
   const [error, setError] = useState('')
   const [active, setActive] = useState(null)      // 展开的模板
   const [form, setForm] = useState({})            // 表单值
-  const [files, setFiles] = useState([])
+  const [filesByKey, setFilesByKey] = useState({})  // {输入key: [File]}
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState('')
 
@@ -40,11 +40,13 @@ export default function Workflows() {
   function openTemplate(t) {
     setActive(t)
     const defaults = {}
+    const initial = {}
     for (const input of t.inputs || []) {
       if (input.default !== undefined) defaults[input.key] = input.default
+      if (input.type === 'images') initial[input.key] = []
     }
     setForm(defaults)
-    setFiles([])
+    setFilesByKey(initial)
     setSubmitError('')
   }
 
@@ -54,7 +56,9 @@ export default function Workflows() {
     setSubmitError('')
     try {
       const fd = new FormData()
-      files.forEach(f => fd.append('files', f))
+      for (const [key, list] of Object.entries(filesByKey)) {
+        list.forEach(f => fd.append(key, f))
+      }
       for (const [k, v] of Object.entries(form)) {
         if (v !== undefined && v !== null && v !== '') fd.append(k, v)
       }
@@ -112,16 +116,22 @@ export default function Workflows() {
                 {input.type === 'images' ? (
                   <div>
                     <div
-                      className={`drop-zone ${files.length ? 'active' : ''}`}
+                      className={`drop-zone ${(filesByKey[input.key] || []).length ? 'active' : ''}`}
                       style={{ padding: 18 }}
                       onClick={() => document.getElementById(`wf-files-${input.key}`).click()}
-                      onDrop={e => { e.preventDefault(); setFiles(Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/')).slice(0, 10)) }}
+                      onDrop={e => {
+                        e.preventDefault()
+                        const dropped = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/')).slice(0, 10)
+                        setFilesByKey(prev => ({ ...prev, [input.key]: dropped }))
+                      }}
                       onDragOver={e => e.preventDefault()}
                     >
-                      {files.length ? <p className="strong">已选择 {files.length} 张图片</p> : <p className="text-sm">拖拽或点击选择图片</p>}
+                      {(filesByKey[input.key] || []).length
+                        ? <p className="strong">已选择 {(filesByKey[input.key] || []).length} 张图片</p>
+                        : <p className="text-sm">拖拽或点击选择图片</p>}
                     </div>
                     <input id={`wf-files-${input.key}`} type="file" multiple accept="image/*" hidden
-                      onChange={e => setFiles(Array.from(e.target.files).slice(0, 10))} />
+                      onChange={e => setFilesByKey(prev => ({ ...prev, [input.key]: Array.from(e.target.files).slice(0, 10) }))} />
                   </div>
                 ) : input.type === 'select' ? (
                   <select className="select" value={form[input.key] ?? ''}

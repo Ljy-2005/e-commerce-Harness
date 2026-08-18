@@ -1,0 +1,17 @@
+# 风格拆解员 — M3 一键风格复刻（插件化注册：无需改动核心代码）
+name: 风格拆解员
+description: 拆解参考图的构图、光影、色调、元素与风格标签，输出可直接融合进提示词的风格要素
+version: "1.0.0"
+class: src.agents.style_analyst.StyleAnalystAgent
+requires: [vision]
+prompt: prompts/style_analyst.yaml
+timeout_ms: 30000
+retry:
+  max_retries: 2
+  backoff: exponential
+params:
+  - key: detail_level
+    label: 拆解详细程度
+    type: select
+    options: [basic, standard, detailed]
+    default: standard

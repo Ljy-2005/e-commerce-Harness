@@ -52,6 +52,7 @@ class AgentRegistry:
                 retry=cfg.get("retry", {}),
                 prompt=cfg.get("prompt", ""),
                 params=cfg.get("params", []),
+                class_name=cfg.get("class", ""),
             )
 
             # 解析 Provider
@@ -85,6 +86,14 @@ class AgentRegistry:
         }
 
         cls = _MAP.get(meta.name)
+        # 插件化：内置映射未命中时按 config 的 class 字段动态导入（新增 Agent 只需 YAML，零核心改动）
+        if cls is None and meta.class_name:
+            import importlib
+            try:
+                mod_path, cls_name = meta.class_name.rsplit(".", 1)
+                cls = getattr(importlib.import_module(mod_path), cls_name)
+            except Exception:
+                cls = None
         if cls is None:
             return None
 

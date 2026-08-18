@@ -3,8 +3,10 @@
 import os
 import asyncio
 import base64
+import json
 import uuid
 import yaml
+from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, WebSocket, WebSocketDisconnect, Header, Request
@@ -60,6 +62,29 @@ def _mask_key(value: str) -> str:
     if len(value) <= 8:
         return "*" * len(value)
     return f"{value[:4]}***{value[-4:]}"
+
+
+async def _append_interjection(session_id: str, content: str) -> dict:
+    """M3 群聊插话：把用户指令追加到会话消息并广播（REST/WS 共用）"""
+    session = _session_manager.get(session_id)
+    if session is None:
+        raise HTTPException(404, "会话不存在")
+    content = content.strip()[:1000]
+    if not content:
+        raise HTTPException(400, "插话内容不能为空")
+    msg = {
+        "id": uuid.uuid4().hex[:12],
+        "turn": session.get("turn_count", 0),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "role": "system",
+        "sender": "用户插话",
+        "action": "respond",
+        "content": {"interjection": content},
+    }
+    session["messages"].append(msg)
+    await _broadcaster.broadcast(session_id, msg)
+    await _session_manager.update(session_id, session)
+    return msg
 
 
 @asynccontextmanager
@@ -324,6 +349,26 @@ async def get_messages(session_id: str, since: int = 0, x_tenant_id: str = Heade
         raise HTTPException(404, "会话不存在")
     messages = session.get("messages", [])
     return {"messages": messages[since:], "total": len(messages)}
+
+
+@app.post("/api/sessions/{session_id}/interject")
+async def interject_session(session_id: str, request: Request, x_tenant_id: str = Header("default", alias="X-Tenant-ID")):
+    """M3 群聊插话：向运行中的会话插入用户指令（Coordinator 下一轮决策会读到）
+
+    Body: {"content": "换个更简约的风格"}
+    """
+    session = _session_manager.get(session_id, tenant_id=x_tenant_id)
+    if session is None:
+        raise HTTPException(404, "会话不存在")
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "请求体必须是 JSON")
+    content = str(body.get("content", "")).strip()
+    if not content:
+        raise HTTPException(400, "content 不能为空")
+    msg = await _append_interjection(session_id, content)
+    return {"status": "appended", "session_id": session_id, "message": msg}
 
 
 @app.post("/api/sessions/{session_id}/decision")
@@ -761,35 +806,69 @@ async def workflow_templates():
 @app.post("/api/workflows/templates/{name}/instantiate")
 async def workflow_instantiate(
     name: str,
+    request: Request,
     platform: str = Form("taobao"),
     category_hint: str = Form(""),
     product_info: str = Form(""),
     scene: str = Form(""),
     collaboration_mode: str = Form("serial"),
     mode: str = Form("auto"),
-    files: list[UploadFile] = File([]),
     x_tenant_id: str = Header("default", alias="X-Tenant-ID"),
 ):
-    """实例化模板 → 创建 job（multipart：files + 表单字段）"""
+    """实例化模板 → 创建 job（multipart）
+
+    图片类输入按字段名分发：模板每个 type: images 的输入接受同名文件字段
+    （如 reference_images=参考图、product_images=商品图）；
+    兼容旧约定：files 字段回退映射到 product_images。
+    """
     from src.harness.image_preprocessor import ImagePreprocessor
 
-    images = []
+    # 收集 multipart 中的文件字段（兼容 FastAPI 已解析的 Form 参数）
+    # 注意：FastAPI/Starlette 的 UploadFile 类型不统一，用鸭子类型识别
+    form = await request.form()
+    file_fields: dict[str, list] = {}
+    for key, value in form.multi_items():
+        items = value if isinstance(value, list) else [value]
+        for v in items:
+            if hasattr(v, "filename") and hasattr(v, "read"):
+                file_fields.setdefault(key, []).append(v)
+
+    template = wf_templates.load_template(name)
+    if not template:
+        raise HTTPException(404, f"模板 '{name}' 不存在")
+    images_input_keys = [
+        i["key"] for i in template.get("inputs", [])
+        if i.get("type") == "images"
+    ]
+
     preprocessor = ImagePreprocessor(max_pixels=2048, quality=85)
-    for f in files[:10]:
-        content = await f.read()
-        pre = preprocessor.process(content, source_name=f.filename or "upload")
-        if pre.error:
-            raise HTTPException(400, f"[{f.filename}] {pre.error}")
-        images.append(base64.b64encode(pre.data).decode("utf-8"))
+
+    async def _process_files(key: str) -> list[str]:
+        if key in file_fields:
+            uploads = file_fields[key]
+        elif key == "product_images" and "files" in file_fields:
+            uploads = file_fields["files"]  # 旧约定回退
+        else:
+            uploads = []
+        result = []
+        for f in uploads[:10]:
+            content = await f.read()
+            pre = preprocessor.process(content, source_name=f.filename or "upload")
+            if pre.error:
+                raise HTTPException(400, f"[{f.filename}] {pre.error}")
+            result.append(base64.b64encode(pre.data).decode("utf-8"))
+        return result
 
     inputs = {
-        "product_images": images,
         "platform": platform,
         "category_hint": category_hint,
         "product_info": product_info,
         "scene": scene,
         "collaboration_mode": collaboration_mode,
     }
+    for key in images_input_keys:
+        inputs[key] = await _process_files(key)
+
     try:
         job = wf_templates.instantiate(name, inputs, tenant_id=x_tenant_id, mode=mode)
     except ValueError as e:
@@ -993,6 +1072,40 @@ async def control_batch(batch_id: str, request: Request, x_tenant_id: str = Head
     return result
 
 
+@app.post("/api/workflows/jobs/{job_id}/replicate")
+async def workflow_replicate(
+    job_id: str,
+    files: list[UploadFile] = File(...),
+    x_tenant_id: str = Header("default", alias="X-Tenant-ID"),
+):
+    """M3 一键风格复刻：上传参考图 → 风格拆解员拆解 → 融合进提示词并重跑
+
+    multipart: files = 参考风格图（1-3 张）
+    """
+    from src.harness.image_preprocessor import ImagePreprocessor
+
+    preprocessor = ImagePreprocessor(max_pixels=2048, quality=85)
+    images = []
+    for f in files[:3]:
+        content = await f.read()
+        pre = preprocessor.process(content, source_name=f.filename or "upload")
+        if pre.error:
+            raise HTTPException(400, f"[{f.filename}] {pre.error}")
+        images.append(base64.b64encode(pre.data).decode("utf-8"))
+    if not images:
+        raise HTTPException(400, "请至少上传 1 张参考风格图")
+
+    try:
+        breakdown = await _workflow_engine.replicate_style(job_id, images)
+    except (ValueError, RuntimeError) as e:
+        raise HTTPException(400, str(e))
+    return {
+        "job_id": job_id,
+        "status": "replicating",
+        "style": breakdown,
+    }
+
+
 @app.websocket("/ws/workflows/jobs/{job_id}")
 async def ws_workflow_job(websocket: WebSocket, job_id: str):
     """工作流实时事件流"""
@@ -1048,12 +1161,21 @@ async def ws_session(websocket: WebSocket, session_id: str):
     for msg in session.get("messages", []):
         await websocket.send_json(msg)
 
-    # 保持连接，等待新消息（Broadcaster 会主动推送）
+    # 保持连接：支持 ping / 用户插话（{type: "chat", content: "..."}）
     try:
         while True:
             data = await websocket.receive_text()
             if data == "ping":
                 await websocket.send_text("pong")
+                continue
+            try:
+                payload = json.loads(data)
+            except Exception:
+                continue
+            if isinstance(payload, dict) and payload.get("type") == "chat":
+                content = str(payload.get("content", "")).strip()
+                if content:
+                    await _append_interjection(session_id, content)
     except WebSocketDisconnect:
         pass
     finally:

@@ -243,3 +243,39 @@ class TestABTestEndpoint:
     def test_nonexistent_session_returns_404(self):
         resp = client.post("/api/sessions/nonexistent/ab-test")
         assert resp.status_code == 404
+
+
+class TestInterject:
+    """M3 群聊插话 — REST + WS 双向"""
+
+    def _make_session(self):
+        from src.main import _session_manager
+        return _session_manager.create(product_images=["fake_b64"], tenant_id="default")
+
+    def test_interject_rest_appends_message(self):
+        s = self._make_session()
+        resp = client.post(
+            f"/api/sessions/{s['session_id']}/interject",
+            json={"content": "换个更简约的风格"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "appended"
+
+        got = client.get(f"/api/sessions/{s['session_id']}").json()
+        assert any(m.get("sender") == "用户插话" for m in got["messages"])
+        assert any("换个更简约的风格" in str(m.get("content")) for m in got["messages"])
+
+    def test_interject_validation(self):
+        assert client.post("/api/sessions/nonexistent/interject", json={"content": "x"}).status_code == 404
+        s = self._make_session()
+        assert client.post(f"/api/sessions/{s['session_id']}/interject", json={"content": "  "}).status_code == 400
+        assert client.post(f"/api/sessions/{s['session_id']}/interject", data="bad").status_code == 400
+
+    def test_interject_via_websocket(self):
+        import time
+        s = self._make_session()
+        with client.websocket_connect(f"/ws/sessions/{s['session_id']}") as ws:
+            ws.send_json({"type": "chat", "content": "WS 插话指令"})
+            time.sleep(0.3)  # 等服务端处理
+        got = client.get(f"/api/sessions/{s['session_id']}").json()
+        assert any("WS 插话指令" in str(m.get("content")) for m in got["messages"])

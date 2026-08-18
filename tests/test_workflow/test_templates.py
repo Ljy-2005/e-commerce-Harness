@@ -18,7 +18,7 @@ class TestListTemplates:
     def test_validate_all_builtin_templates(self):
         agent_names = {
             "中心决策者", "商品分析员", "品类专项分析员", "提示词生成员",
-            "生图员", "审查员", "合规审查员", "图像后处理员",
+            "生图员", "审查员", "合规审查员", "图像后处理员", "风格拆解员",
         }
         for t in templates.list_templates():
             tpl = templates.load_template(t["template_name"])

@@ -23,11 +23,11 @@ E-Commerce Harness 目前是「单次会话的智能群聊引擎 + 可靠性壳�
 
 | OiiOii 概念 | 本项目对应物 | 状态 |
 |------------|-------------|------|
-| 智能画布（节点化工作流） | 商品图工作流画布（见 §4 前端） | 待建 |
-| Skill 库（预制技能模板） | 工作流模板库 `config/workflows/*.yaml` | 待建 |
-| 一键拉片复刻 | 一键风格复刻（参考图 → 拆解 → 融合提示词） | 待建（Phase 2） |
-| 7-Agent 团队 + 代理对话 | 已有 8 Agent + 群聊直播；缺用户插话指挥 | 已有 / 待补（Phase 2） |
-| 自动挡 / 手动挡 | 自动执行 / 逐步执行（每步暂停等指令） | 待建 |
+| 智能画布（节点化工作流） | 商品图工作流画布（见 §8 前端） | ✅ 已建（M1） |
+| Skill 库（预制技能模板） | 工作流模板库 `config/workflows/*.yaml` | ✅ 已建（M1/M3，5 个模板） |
+| 一键拉片复刻 | 一键风格复刻（参考图 → 拆解 → 融合提示词） | ✅ 已建（M3） |
+| 7-Agent 团队 + 代理对话 | 已有 8 Agent + 群聊直播；用户插话指挥 | ✅ 插话已建（M3，WS 双向 + REST） |
+| 自动挡 / 手动挡 | 自动执行 / 逐步执行（每步暂停等指令） | ✅ 已建（M1） |
 
 ### 1.3 设计原则（沿用项目既有决策）
 
@@ -392,7 +392,7 @@ batches(batch_id, template_name, tenant_id, status, total, done, failed,
 |------|------|------|
 | **M1（Phase 1）** | DSL + engine + job_store + expressions + tools（validate/post_process）+ 4 模板 + 全部 API + 画布页（自动/手动挡） | ✅ 已交付：54 个工作流测试通过，Mock 模式端到端跑通 4 模板，崩溃续跑/手动挡/人工审批/回跳重试均覆盖 |
 | **M2（Phase 2a）** | batch.py + 批量页 + 死信重跑 | ✅ 已交付：BatchScheduler（并发窗口/单项自动重试 2 次/死信/暂停恢复取消/断点续跑）、4 个批量端点（JSON+CSV）、前端批量页（进度/控制/死信重跑）、13 个新测试 |
-| **M3（Phase 2b）** | 一键风格复刻（新增「风格拆解员」Agent，YAML 注册零核心改动）+ 群聊插话（WS 双向指令） | 参考图复刻出的主图风格要素匹配 |
+| **M3（Phase 2b）** | 一键风格复刻（新增「风格拆解员」Agent，YAML 注册零核心改动）+ 群聊插话（WS 双向指令） | ✅ 已交付：风格拆解员（插件化 class 注册，9 Agent）+ style_replicate 模板（双图片输入）+ replicate API + 引擎风格注入重跑；群聊插话（REST + WS 双向 + 前端输入框）；15 个新测试，风格要素匹配由 spy 测试验证 |
 | **M4（Phase 3）** | 审批 SLA 超时自动决策 + webhook/连接器接口 + 模板导入导出 | 外部回调触发状态流转 |
 
 ---
@@ -448,3 +448,10 @@ frontend/src/pages/Batches.jsx   ← Phase 2
 3. **限流测试隔离**：全局限流器（60rpm）会把批量测试节流到分钟级，`tests/test_workflow` 注入独立高额限流器（限流本身有专门测试）。
 4. **CSV 无图片列**：CSV 批次注入合法 base64 占位符 `Y3N2`（b64("csv")），Mock 模式完整可用；真实图片请用 JSON 传 base64（连接器 URL 列留待 Phase 3）。
 5. **单项重试计数语义**：每轮执行（含 retry_failed 重跑）尝试计数从 1 重新累计（1 次初始 + 2 次自动重试 = 最多 3 次/轮）。
+
+### 13.2 M3 实施补充
+
+1. **插件化 Agent 注册**：`AgentMeta` 新增 `class_name` 字段，注册中心对 `_MAP` 未命中的名称按 YAML 的 `class: 完整类路径` 动态导入——风格拆解员因此零核心代码改动（仅新增 YAML + Agent 文件）。
+2. **多图片输入分发**：模板可声明多个 `type: images` 输入（参考图/商品图），实例化端点按 multipart 字段名分发（`reference_images=`、`product_images=`），`files=` 保持旧约定回退。注意 FastAPI/Starlette 的 UploadFile 类型不统一，文件字段用鸭子类型识别。
+3. **风格要素匹配验证**：Mock 模式下提示词生成员返回模板数据，无法断言生成图风格——改用 spy Agent 捕获任务描述，断言「[风格复刻]」要素文本确实注入（验收标准"风格要素匹配"在 Mock 下的可测化）。
+4. **replicate 重跑语义**：拆解结果存入 `job.context["_style_breakdown"]`，从 prompt 节点 `retry_step` 重跑；引擎在 `_run_agent` 中对提示词生成员的任务注入风格文本，重跑即生效。

@@ -1,0 +1,53 @@
+# 风格复刻 — 参考图 → 拆解风格要素 → 融合进提示词（M3 一键风格复刻）
+name: 风格复刻
+version: "1.0.0"
+description: 上传参考风格图，拆解其构图/光影/色调/元素并应用到你的商品图生成
+category: 风格复刻
+icon: "🎨"
+inputs:
+  - key: reference_images
+    label: 参考风格图
+    type: images
+    required: true
+  - key: product_images
+    label: 商品图片
+    type: images
+    required: true
+  - key: platform
+    label: 目标平台
+    type: select
+    options: [taobao, xiaohongshu, douyin, jd, amazon]
+    default: taobao
+nodes:
+  analyze_ref:
+    type: agent
+    agent: 风格拆解员
+    task: 拆解参考图的构图、光影、色调、元素与风格标签
+  analyze_product:
+    type: agent
+    agent: 商品分析员
+    task: 分析商品图片，提取品类、卖点与风格约束
+  prompt:
+    type: agent
+    agent: 提示词生成员
+    task: 基于商品分析生成提示词，并严格融入以下风格拆解要素：{steps.analyze_ref.outputs.style_prompt_text}
+  generate:
+    type: agent
+    agent: 生图员
+    task: 使用提示词生成商品展示图片
+  review:
+    type: agent
+    agent: 审查员
+    task: 审查图片质量与风格还原度
+  branch:
+    type: condition
+    rules:
+      - when: $steps.review.outputs.overall_score >= 75
+        goto: success_end
+      - default: failed_end
+  success_end:
+    type: end
+    status: completed
+  failed_end:
+    type: end
+    status: failed

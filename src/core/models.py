@@ -138,6 +138,7 @@ class AgentMeta(BaseModel):
     retry: dict = Field(default_factory=dict)
     prompt: str = ""                        # 引用的 System Prompt 文件路径
     params: list[dict] = Field(default_factory=list)  # 可配置参数
+    class_name: str = ""                    # 插件化：实现类的完整路径（如 src.agents.style_analyst.StyleAnalystAgent）
 
 
 # ── 消息 ──

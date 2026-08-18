@@ -53,6 +53,14 @@ export async function submitDecision(sessionId, action) {
   return res.json()
 }
 
+export async function interjectSession(sessionId, content) {
+  return request(`/sessions/${sessionId}/interject`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
+  })
+}
+
 export async function runABTest(sessionId, config) {
   return request(`/sessions/${sessionId}/ab-test`, {
     method: 'POST',
@@ -171,6 +179,17 @@ export async function decideWorkflow(jobId, action) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action }),
   })
+}
+
+export async function replicateStyle(jobId, file) {
+  const fd = new FormData()
+  fd.append('files', file)
+  const res = await fetch(`${BASE}/workflows/jobs/${jobId}/replicate`, { method: 'POST', body: fd })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.detail || `风格复刻失败 (${res.status})`)
+  }
+  return res.json()
 }
 
 export async function createBatch(body) {

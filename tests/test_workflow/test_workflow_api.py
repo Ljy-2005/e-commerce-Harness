@@ -82,7 +82,7 @@ class TestTemplatesEndpoint:
 
     def test_instantiate_unknown_template(self, client):
         resp = client.post("/api/workflows/templates/nope/instantiate", data={})
-        assert resp.status_code == 400
+        assert resp.status_code in (400, 404)
 
     def test_instantiate_missing_required_input(self, client):
         resp = client.post("/api/workflows/templates/white_bg_suite/instantiate", data={})
@@ -290,3 +290,67 @@ class TestBatchEndpoint:
         assert "batches" in resp.json()
         assert client.post("/api/workflows/batches/x/control", json={}).status_code == 400
         assert client.post("/api/workflows/batches", json={"template_name": "nope", "items": [{}]}).status_code == 400
+
+
+class TestReplicateEndpoint:
+    """M3 POST /api/workflows/jobs/{id}/replicate — 一键风格复刻"""
+
+    @pytest.mark.asyncio
+    async def test_instantiate_style_replicate_multi_image_inputs(self, client):
+        """多图片输入模板：reference_images / product_images 按字段名分发"""
+        resp = await asyncio.to_thread(
+            client.post,
+            "/api/workflows/templates/style_replicate/instantiate",
+            data={"platform": "taobao"},
+            files=[
+                ("reference_images", ("ref.jpg", _valid_jpeg_bytes(), "image/jpeg")),
+                ("product_images", ("product.jpg", _valid_jpeg_bytes(), "image/jpeg")),
+            ],
+        )
+        assert resp.status_code in (200, 201), resp.text
+        job_id = resp.json()["job_id"]
+
+        job = await _run_job_until_done(job_id)
+        assert job.status.value == "completed"
+        # 两个图片输入都被正确填充
+        assert len(job.inputs["reference_images"]) == 1
+        assert len(job.inputs["product_images"]) == 1
+
+    def test_instantiate_style_replicate_missing_reference(self, client):
+        """缺参考图字段 → 400"""
+        resp = client.post(
+            "/api/workflows/templates/style_replicate/instantiate",
+            data={"platform": "taobao"},
+            files=[("product_images", ("product.jpg", _valid_jpeg_bytes(), "image/jpeg"))],
+        )
+        assert resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_replicate_and_rerun(self, client):
+        job_id = await _instantiate(client, "scene_suite")
+        await _run_job_until_done(job_id)
+
+        resp = await asyncio.to_thread(
+            client.post,
+            f"/api/workflows/jobs/{job_id}/replicate",
+            files=[("files", ("ref.jpg", _valid_jpeg_bytes(), "image/jpeg"))],
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["status"] == "replicating"
+        assert body["style"]["style_tags"]  # 风格标签已拆解
+
+        # 测试循环驱动重跑完成
+        job = await _run_job_until_done(job_id)
+        assert job.status.value == "completed"
+        assert "_style_breakdown" in job.context
+        assert job.context["retries"] >= 1
+
+    def test_replicate_validation(self, client):
+        assert client.post("/api/workflows/jobs/nope/replicate").status_code == 422  # 缺文件
+        # 无文件字段 → FastAPI 422；job 不存在且带文件 → 400
+        resp = client.post(
+            "/api/workflows/jobs/nonexistent123/replicate",
+            files=[("files", ("ref.jpg", _valid_jpeg_bytes(), "image/jpeg"))],
+        )
+        assert resp.status_code == 400

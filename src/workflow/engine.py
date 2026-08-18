@@ -343,6 +343,11 @@ class WorkflowEngine:
         if agent is None:
             raise RuntimeError(f"Agent '{cfg.get('agent')}' 未注册")
         task = expr.render_string(cfg.get("task", ""), scope)
+        # M3 一键风格复刻：把已拆解的风格要素注入提示词生成员的任务
+        style = job.context.get("_style_breakdown")
+        if style and cfg.get("agent") == "提示词生成员":
+            style_text = style.get("style_prompt_text") or str(style)
+            task = f"{task}\n\n[风格复刻] 必须严格遵循以下风格拆解要素：\n{style_text}"
         session = self._build_session(job, runtime)
         result = await agent.execute(task, session)
         if "error" in result:
@@ -431,15 +436,15 @@ class WorkflowEngine:
         return resolved
 
     def _build_session(self, job, runtime) -> dict:
+        # 透传全部输入（product_images / reference_images / platform / …），
+        # 各 Agent 按需读取（如风格拆解员读 reference_images）
+        task = dict(job.inputs)
+        task.setdefault("product_images", [])
+        task.setdefault("platform", "taobao")
+        task.setdefault("collaboration_mode", "serial")
         return {
             "tenant_id": job.tenant_id,
-            "task": {
-                "product_images": job.inputs.get("product_images", []),
-                "product_info": job.inputs.get("product_info", ""),
-                "platform": job.inputs.get("platform", "taobao"),
-                "category_hint": job.inputs.get("category_hint", ""),
-                "collaboration_mode": job.inputs.get("collaboration_mode", "serial"),
-            },
+            "task": task,
             "artifacts": dict(runtime.artifacts),
             "turn_count": 0,
         }
@@ -546,3 +551,38 @@ class WorkflowEngine:
         target.status = StepStatus.SKIPPED
         await self.store.update_step(target)
         await self._emit(job_id, "step_skipped", {"node": step_node, "manual": True})
+
+    async def replicate_style(self, job_id: str, reference_images: list[str],
+                              target_node: str = "prompt") -> dict:
+        """M3 一键风格复刻：拆解参考图风格 → 存入 job 上下文 → 从提示词节点重跑
+
+        reference_images: 参考图的 base64 列表（1-3 张）
+        """
+        job = await self.store.get_job(job_id)
+        if job is None:
+            raise ValueError("job 不存在")
+        agent = self.registry.get("风格拆解员")
+        if agent is None:
+            raise ValueError("风格拆解员未注册（检查 config/agents/style_analyst.yaml）")
+        if not reference_images:
+            raise ValueError("请至少提供 1 张参考图")
+
+        session = {
+            "tenant_id": job.tenant_id,
+            "task": {"reference_images": reference_images},
+            "artifacts": {},
+            "turn_count": 0,
+        }
+        breakdown = await agent.execute("拆解参考图的风格要素", session)
+        if "error" in breakdown:
+            raise RuntimeError(breakdown["error"])
+
+        job.context["_style_breakdown"] = breakdown
+        await self.store.update_job(job)
+        await self._emit(job_id, "style_replicated", {
+            "style_tags": breakdown.get("style_tags", []),
+        })
+
+        # 从提示词节点重跑（引擎会把风格要素注入提示词生成员任务）
+        await self.retry_step(job_id, target_node)
+        return breakdown

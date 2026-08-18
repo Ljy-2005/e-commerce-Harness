@@ -41,5 +41,15 @@ export function useWebSocket(sessionId) {
 
   const clear = useCallback(() => setMessages([]), [])
 
-  return { messages, connected, error, clear }
+  // M3 群聊插话：向服务端发送指令（服务端会广播回来）
+  const send = useCallback((obj) => {
+    const ws = wsRef.current
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(obj))
+      return true
+    }
+    return false
+  }, [])
+
+  return { messages, connected, error, clear, send }
 }

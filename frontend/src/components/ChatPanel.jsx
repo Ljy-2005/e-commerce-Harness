@@ -32,6 +32,7 @@ function msgPreview(content) {
   if (content.context_action) return `上下文: ${content.context_action}`
   if (content.memory_recall) return `🧠 ${content.memory_recall.slice(0, 100)}`
   if (content.winner) return `🏆 最优: ${content.winner} (${content.winner_score}/100)`
+  if (content.interjection) return `📣 用户插话: ${content.interjection}`
   if (content.agent_name) return `邀请: ${content.agent_name} — ${content.task_brief?.slice(0, 60) || ''}`
   if (content.action === 'done') return '✅ 任务完成'
   return JSON.stringify(content).slice(0, 120)
@@ -45,9 +46,29 @@ const FILTERS = [
 ]
 
 export default function ChatPanel({ sessionId, onNewMessage }) {
-  const { messages, connected, error } = useWebSocket(sessionId)
+  const { messages, connected, error, send } = useWebSocket(sessionId)
   const bottomRef = useRef(null)
   const [filter, setFilter] = useState('all')
+  const [input, setInput] = useState('')
+  const [sending, setSending] = useState(false)
+
+  // M3 群聊插话：WS 发送指令（失败回退 REST）
+  async function handleInterject() {
+    const content = input.trim()
+    if (!content || sending) return
+    setSending(true)
+    try {
+      const ok = send({ type: 'chat', content })
+      if (!ok) {
+        const { interjectSession } = await import('../api')
+        await interjectSession(sessionId, content)
+      }
+      setInput('')
+    } catch (err) {
+      alert('插话失败: ' + (err.message || '未知错误'))
+    }
+    setSending(false)
+  }
 
   useEffect(() => {
     if (messages.length > 0 && onNewMessage) onNewMessage()
@@ -125,6 +146,22 @@ export default function ChatPanel({ sessionId, onNewMessage }) {
         ))}
         <div ref={bottomRef} />
       </div>
+
+      {/* M3 群聊插话：指挥正在运行的群聊 */}
+      <div className="flex gap-1 mt-1">
+        <input
+          className="input"
+          style={{ flex: 1 }}
+          placeholder="插话指挥群聊，如：换个更简约的风格 / 加上送礼场景"
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') handleInterject() }}
+        />
+        <button className="btn btn-primary btn-sm" onClick={handleInterject} disabled={sending || !input.trim()}>
+          {sending ? '发送中...' : '📣 插话'}
+        </button>
+      </div>
+      <p className="text-xs mt-1 text-muted">插话会进入群聊消息流，Coordinator 下一轮决策将参考你的指令（真实 LLM 模式生效）。</p>
     </div>
   )
 }
