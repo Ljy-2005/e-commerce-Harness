@@ -5,6 +5,22 @@
 
 ---
 
+## 0. 新会话接续指南（复制这段话作为新对话的开场白）
+
+```
+这是 E-Commerce Harness 项目（群聊式多智能体电商商品图生成），
+工作目录 D:\vscode-project\e-commerce Harness。
+请先读 docs/progress.md（第 0 节之外的全部内容）和 docs/workflow-design.md，
+然后按 progress.md 第 5.3 节「遗留的开放决策」选择下一项任务继续。
+常用命令：pytest（全量测试，当前 370 通过）、
+前端 cd frontend && npm run build、
+后端 python -m uvicorn src.main:app --host 127.0.0.1 --port 8000、
+前端开发 cd frontend && npm run dev（端口 5173）。
+服务若未运行请先启动并验证 /health。
+```
+
+---
+
 ## 1. 项目概览
 
 **群聊式多智能体电商商品图生成系统** —— 7 个 AI Agent 在中心决策者（Coordinator）的协调下，像群聊一样协作完成"商品图生成"全流程任务。
