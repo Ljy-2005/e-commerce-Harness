@@ -33,8 +33,12 @@ class ChatEngine:
         self.sessions = session_manager
         self.broadcaster = broadcaster
 
-    async def run(self, session: SessionState) -> SessionState:
-        """运行群聊主循环"""
+    async def run(self, session: SessionState, start_index: Optional[int] = None) -> SessionState:
+        """运行群聊主循环
+
+        start_index: 非 None 时在 coordinator.reset() 之后定位到指定工作流索引
+        （审计修复：HITL retry 跳转此前被 reset() 清零，导致从分析员全量重跑）
+        """
         session_id = session["session_id"]
         max_turns = session.get("max_turns", 15)
         session["status"] = RunStatus.RUNNING.value
@@ -54,6 +58,8 @@ class ChatEngine:
             return session
 
         coordinator.reset()
+        if start_index is not None:
+            coordinator._workflow_index = start_index
         mode = session.get("task", {}).get("collaboration_mode", "serial") or "serial"
         coordinator.set_mode(mode)
 
@@ -509,6 +515,7 @@ class ChatEngine:
         decision: "approve" | "retry" | "reject"
         """
         session_id = session["session_id"]
+        start_index: Optional[int] = None  # retry 分支会设为审查员索引
 
         if decision == "approve":
             # 修改审查结果为 pass
@@ -566,10 +573,10 @@ class ChatEngine:
                 })
                 self._update_artifacts(session, "生图员", ig_result)
 
-            # 恢复引擎继续（Coordinator 会从审查员步骤继续）
-            coordinator = self.registry.get("中心决策者")
-            if coordinator:
-                coordinator._workflow_index = 5  # 跳到审查员步骤
+            # 恢复引擎继续（审计修复：跳转索引经 run(start_index=...) 传入，
+            # 在 reset() 之后生效——此前先置 _workflow_index=5 再 run()，
+            # 被 run() 开头 reset() 清零，导致从分析员全量重跑）
+            start_index = 5  # 审查员步骤（提示词/生图已在上面直接重跑）
 
         elif decision == "reject":
             session["status"] = RunStatus.FAILED.value
@@ -585,8 +592,8 @@ class ChatEngine:
             await self.sessions.update(session_id, session)
             return session
 
-        # approve/retry → 继续运行
-        return await self.run(session)
+        # approve/retry → 继续运行（retry 带 start_index 跳转到审查员）
+        return await self.run(session, start_index=start_index)
 
     def _update_artifacts(self, session: SessionState, agent_name: str, result: dict):
         """将 Agent 输出更新到 artifacts"""

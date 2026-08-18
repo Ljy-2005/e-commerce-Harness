@@ -4,6 +4,7 @@
 """
 
 import asyncio
+import contextlib
 import json
 import sqlite3
 from datetime import datetime, timezone
@@ -81,13 +82,20 @@ CREATE INDEX IF NOT EXISTS idx_batch_items ON batch_items(batch_id, status);
 """
 
 
-def _connect(db_path: Path) -> sqlite3.Connection:
+@contextlib.contextmanager
+def _connect(db_path: Path):
+    """打开 SQLite 连接：commit on success + 显式 close（审计修复：
+    此前只 commit 不 close，连接依赖 GC 回收，负载下会有 ResourceWarning）"""
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path, timeout=10)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.executescript(_SCHEMA)
-    return conn
+    try:
+        yield conn
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def _iso(dt) -> str:

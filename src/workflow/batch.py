@@ -33,6 +33,21 @@ BATCH_CANCELLED = "cancelled"
 # 每项最多自动重试次数（不含首次）
 MAX_ITEM_RETRIES = 2
 
+# 单批次商品项上限（审计修复：与 API 端点一致，调度器层兜底防无界 job）
+MAX_BATCH_ITEMS = 100
+
+
+def _make_done_callback(batch_id: str):
+    """审计修复 #12：run 任务异常必须被取回并记录，否则批次卡 CREATED/RUNNING"""
+    def _on_done(t: asyncio.Task):
+        try:
+            t.result()
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            _batch_logger.error("批次执行异常", extra={"batch_id": batch_id, "error": str(e)[:300]})
+    return _on_done
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -72,6 +87,8 @@ class BatchScheduler:
             raise ValueError(f"模板 '{template_name}' 不存在")
         if not items:
             raise ValueError("批次至少需要 1 个商品项")
+        if len(items) > MAX_BATCH_ITEMS:
+            raise ValueError(f"单批次最多 {MAX_BATCH_ITEMS} 个商品项（当前 {len(items)}）")
 
         batch = {
             "batch_id": uuid.uuid4().hex[:16],
@@ -97,6 +114,7 @@ class BatchScheduler:
 
         runtime = self._runtimes.setdefault(batch["batch_id"], _BatchRuntime())
         runtime.task = asyncio.create_task(self.run(batch["batch_id"]))
+        runtime.task.add_done_callback(_make_done_callback(batch["batch_id"]))  # 审计修复 #12
         return batch
 
     async def control(self, batch_id: str, action: str) -> dict:
@@ -149,6 +167,7 @@ class BatchScheduler:
         if pending == 0:
             # 无待办（恢复场景）→ 重新汇总终态
             await self._finalize(batch_id)
+            self._runtimes.pop(batch_id, None)  # 审计修复：终态清理
             return await self.store.get_batch(batch_id)
 
         await self.store.set_batch_status(batch_id, BATCH_RUNNING)
@@ -173,9 +192,11 @@ class BatchScheduler:
 
         if runtime.cancelled:
             await self.store.set_batch_status(batch_id, BATCH_CANCELLED)
+            self._runtimes.pop(batch_id, None)  # 审计修复：终态清理
             return await self.store.get_batch(batch_id)
 
         await self._finalize(batch_id)
+        self._runtimes.pop(batch_id, None)  # 审计修复：终态清理
         return await self.store.get_batch(batch_id)
 
     async def _process_item(self, batch_id: str, batch: dict, seq: int):

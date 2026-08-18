@@ -12,7 +12,7 @@
 工作目录 D:\vscode-project\e-commerce Harness。
 请先读 docs/progress.md（第 0 节之外的全部内容）和 docs/workflow-design.md，
 然后按 progress.md 第 5.3 节「遗留的开放决策」选择下一项任务继续。
-常用命令：pytest（全量测试，当前 410 通过）、
+常用命令：pytest（全量测试，当前 416 通过）、
 前端 cd frontend && npm run build、
 后端 python -m uvicorn src.api.main:app --host 127.0.0.1 --port 8000、
 前端开发 cd frontend && npm run dev（端口 5173）。
@@ -32,7 +32,7 @@
 | Web 框架 | FastAPI + Uvicorn（REST + WebSocket） |
 | 前端 | React SPA（Vite） |
 | 数据库 | 文件持久化（checkpoint JSONL / 审计日志 JSONL），无外部 DB 依赖 |
-| 测试 | pytest（asyncio_mode=auto），39 个测试文件，410 个测试通过 |
+| 测试 | pytest（asyncio_mode=auto），40 个测试文件，416 个测试通过 |
 | 部署 | Docker 多阶段构建（Node 前端 + Python 后端 + Nginx） |
 
 ---
@@ -100,10 +100,11 @@
 
 ### 2.4 测试覆盖
 
-- **39 个测试文件**，**410 个测试通过**（`pytest` 全量 Mock Mode，无自有 RuntimeWarning）
+- **40 个测试文件**，**416 个测试通过**（`pytest` 全量 Mock Mode，无自有 RuntimeWarning）
 - 时序加固：批量死信重跑测试改为 spy 断言（不再依赖轮询瞬时状态），全量运行多次无偶发失败
 - M5a 批量报表：聚合逻辑 3 测试（总览/模板/直方图/失败原因/租户隔离）+ 端点 3 测试（含路由防吞回归）
 - 四域审计第一轮（决策 18）：+34 测试（路径穿越 10 参数、租户 403/404、retry_step 重启、model_override 传播、SSRF 8 组、上传 413、批次上限、报表幽灵条目、熔断计 error dict、cancel 唤醒等）
+- 第二轮（决策 19）：+6 测试（Session TTL 3 例、HITL start_index 2 例、限流参数校验 1 例）
 - 覆盖范围：
   - `test_api/` — FastAPI 端点测试（含设置/会话列表/密钥持久化/模型映射/群聊插话 21 个新测试）
   - `test_agents/` — 9 个 Agent 单测（含风格拆解员插件化注册）
@@ -238,6 +239,7 @@ src/
 | 23 | "继续" | 继续 5.3 剩余工程化项：① auth.py 迁至 `src/api/`（修复依赖方向）+ main.py 迁入 `src/api/main.py`（PRD D4），`src/main.py` 保留 `sys.modules` 别名 shim（测试模块属性突变兼容）；② 前端拆包（10 页面 React.lazy + manualChunks），入口 603KB→6KB；pytest 370 全绿、/health 冒烟正常 |
 | 24 | "先继续吧" | 实现 Workflow M5a 批量报表：`JobStore.get_batch_report` 聚合（总览/模板成功率/耗时直方图/失败原因 Top-5 归一化）+ `GET /api/workflows/batches/report` + 前端批量页「数据报表」标签（recharts 双图 + 失败原因条形 + 状态分布）；6 个新测试全绿、build 零告警 |
 | 25 | "先检查一下现在的项目有什么问题" | 四域并行审计（安全/后端正确性/测试质量/前端+文档）+ 自查，发现 4 CRITICAL + 10 HIGH + ~25 MEDIUM + ~15 LOW；逐项核验（路径穿越、报表幽灵条目等实测复现）；经用户确认后完成第一轮修复（CRITICAL+HIGH 全清，见里程碑表），新增 31 测试，pytest 407 全绿、前端 build 成功 |
+| 26 | "继续任务吧" | 提交 git `875382a`（固化前 6 轮 v0.2.0）；完成第二轮 MEDIUM（决策 19）：HITL retry start_index（reset 后生效，双跑竞态核实为误报）、Session TTL + 配额只计活跃态、checkpoint/agent_memory 转 to_thread、AuditLogger 模块级锁、_runtimes 终态清理、批量 done_callback、SQLite 显式 close、限流参数防护、批次上限双保险；+6 测试，pytest 416 全绿 |
 
 ### 5.2 关键决策点
 
@@ -296,6 +298,9 @@ M5a 批量报表的三个实现要点：① **数据源联表**：条目耗时/�
 
 **决策 18：四域并行审计 + 第一轮修复（4 CRITICAL + 10 HIGH）**
 "先检查项目有什么问题" → 派 4 个独立审计代理（安全/后端正确性/测试质量/前端+文档）并行扫描 + 自查，交叉印证后**关键指控全部实测复核**（路径穿越用 TestClient 复现读回 models.yaml、报表幽灵条目用临时库复现、Provider 探测零断言逐行确认）。修复遵循「先修能落地的高危项，架构级留作显式决策」：① **路径穿越**修在共享入口（`_safe_template_path` 白名单 + export 复用），import 端点补 `:`/`..` 校验——一处修复覆盖 export/instantiate/batch 三条攻击面；② **租户 IDOR**统一在端点层 `get_job/get_batch` 后比对 tenant（与读取端点同模式），WS 用可选 `tenant` 查询参数；未知租户从"回退 default"改为 403（`TenantRegistry.get` 返回 None）；③ **管理面保护**用"未配置 Key 时仅本机"的中间策略（`_require_admin_access`），把「凭据绑定租户」「每租户独立 Key」等架构级改造明确列为 C2 遗留、待用户决策；④ **A/B model_override**选择 ContextVar 而非实例属性——变体并行执行共享同一 Agent 实例，实例属性必然竞态，ContextVar 按协程上下文隔离恰好线程/并发安全，顺带删除死代码；⑤ **测试数据安全**（secrets.yaml 快照还原、memory tmp 隔离）优先于补测试——审计明确指出"新增测试会加剧污染"。
+
+**决策 19：第二轮 MEDIUM 修复（正确性/资源治理）+ 首个提交点**
+"继续任务吧" → 先提交 git（`875382a`，v0.2.0 里程碑，前 6 轮 60 文件），再修第二轮 9 项。三点值得记录：① **HITL 双跑竞态经代码核实为误报**——端点状态检查与 `resume_after_hitl` 置 RUNNING 之间无 await 点，单进程事件循环下不可能双跑；但同条目里的 `_workflow_index=5` 被 `reset()` 清零是真实 bug，修复方式是给 `run()` 加 `start_index` 参数（reset 之后生效），并诚实记录"误报 + 真 bug"的拆分；② **`_runtimes` 终态清理的兼容性**——弹出运行期镜像后，retry_step/replicate/control 都靠 `setdefault` 重建，两个既有测试直接访问 `engine._runtimes[...].task` 之所以不炸，是因为 asyncio 参数求值先于 await 捕获了 task 引用；③ **TTL 用惰性驱逐而非定时器**——`get/list/count` 入口清扫即可，避免引入后台任务生命周期管理。
 
 ### 5.3 遗留的开放决策
 

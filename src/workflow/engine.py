@@ -189,6 +189,7 @@ class WorkflowEngine:
                     job.status = JobStatus.CANCELLED
                     await self.store.update_job(job)
                     await self._emit(job_id, "job_cancelled")
+                    self._runtimes.pop(job_id, None)  # 审计修复：终态清理
                     return job
 
                 # 每步前刷新步骤状态（外部控制如 skip_step 可能已修改存储）
@@ -249,7 +250,12 @@ class WorkflowEngine:
             await self._emit(job_id, "job_failed", {"error": str(e)[:300]})
             _engine_logger.warning("workflow job 失败: %s", e, exc_info=True)
 
-        return await self.store.get_job(job_id) or job
+        # 审计修复：终态清理运行期镜像（_runtimes 不再无限增长；
+        # 后续 retry_step/replicate/control 会按需 setdefault 重建）
+        final = await self.store.get_job(job_id) or job
+        if final.status in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED):
+            self._runtimes.pop(job_id, None)
+        return final
 
     # ── 节点执行 ──
 

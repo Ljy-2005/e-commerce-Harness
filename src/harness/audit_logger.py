@@ -3,11 +3,17 @@
 import asyncio
 import json
 import re
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
 # date 参数校验正则（YYYY-MM-DD）
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+# 模块级写锁（审计修复：此前 asyncio.Lock 按实例创建，而每次调用都新建
+# AuditLogger 实例，锁无法跨实例互斥；改为 threading.Lock 在线程池内串行化
+# 追加，同时规避跨事件循环复用 asyncio.Lock 的 bound-to-loop 问题）
+_WRITE_LOCK = threading.Lock()
 
 
 class AuditLogger:
@@ -24,7 +30,6 @@ class AuditLogger:
     def __init__(self, log_dir: str = ""):
         self._dir = Path(log_dir) if log_dir else Path(__file__).parent.parent.parent / "data" / "audit"
         self._dir.mkdir(parents=True, exist_ok=True)
-        self._lock = asyncio.Lock()
 
     def _today_file(self) -> Path:
         return self._dir / f"audit-{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.jsonl"
@@ -58,14 +63,14 @@ class AuditLogger:
         if error:
             entry["error"] = error[:500]
 
-        async with self._lock:
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, self._write_line, entry)
+        # 审计修复：写操作在线程池执行，模块级 threading.Lock 串行化追加
+        await asyncio.to_thread(self._write_line, entry)
 
     def _write_line(self, entry: dict):
-        """同步写一行 JSON（由 run_in_executor 调用）"""
-        with open(self._today_file(), "a", encoding="utf-8") as f:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        """同步写一行 JSON（由 to_thread 调用；模块级锁防并发交错）"""
+        with _WRITE_LOCK:
+            with open(self._today_file(), "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
     async def query(
         self,

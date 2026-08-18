@@ -1,5 +1,6 @@
 """Agent 记忆/学习 — 记录成功模式，召回相似场景的最佳实践"""
 
+import asyncio
 import json
 import hashlib
 from datetime import datetime, timezone
@@ -12,6 +13,9 @@ class AgentMemory:
 
     记录成功的提示词和分析模式，按品类索引。
     下次遇到相似商品时召回，提高一次通过率。
+
+    审计修复：所有文件 IO 经 asyncio.to_thread 转线程，避免阻塞事件循环
+    （此前 async def 直接 open/read/write）。
     """
 
     def __init__(self, storage_dir: str = ""):
@@ -51,7 +55,10 @@ class AgentMemory:
             "top_praises": review.get("top_praises", [])[:3],
         }
 
-        # 追加到品类文件
+        # 追加到品类文件（线程池中执行）
+        await asyncio.to_thread(self._append_entry, key, entry)
+
+    def _append_entry(self, key: str, entry: dict):
         file = self._dir / f"{key}.jsonl"
         with open(file, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
@@ -60,11 +67,15 @@ class AgentMemory:
 
     async def recall(self, category: str, limit: int = 5) -> list[dict]:
         """召回某品类下历史成功的 Top-N 经验（按评分降序）"""
+        entries = await asyncio.to_thread(self._read_entries, category)
+        entries.sort(key=lambda e: e.get("score", 0), reverse=True)
+        return entries[:limit]
+
+    def _read_entries(self, category: str) -> list[dict]:
         key = self._category_key(category)
         file = self._dir / f"{key}.jsonl"
         if not file.exists():
             return []
-
         entries = []
         with open(file, "r", encoding="utf-8") as f:
             for line in f:
@@ -72,9 +83,7 @@ class AgentMemory:
                     entries.append(json.loads(line.strip()))
                 except json.JSONDecodeError:
                     continue
-
-        entries.sort(key=lambda e: e.get("score", 0), reverse=True)
-        return entries[:limit]
+        return entries
 
     async def recall_similar(
         self, category: str, features: list[str], limit: int = 3
@@ -98,6 +107,9 @@ class AgentMemory:
 
     async def stats(self) -> dict:
         """记忆库统计"""
+        return await asyncio.to_thread(self._stats_sync)
+
+    def _stats_sync(self) -> dict:
         total = 0
         by_category = defaultdict(int)
         scores = []
@@ -123,6 +135,9 @@ class AgentMemory:
 
     async def clear(self, category: str = ""):
         """清除记忆（全清或按品类）"""
+        await asyncio.to_thread(self._clear_sync, category)
+
+    def _clear_sync(self, category: str):
         if category:
             file = self._dir / f"{self._category_key(category)}.jsonl"
             if file.exists():

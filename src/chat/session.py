@@ -1,7 +1,8 @@
 """Session 管理 — 创建/加载/持久化群聊会话"""
 
+import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from src.core.state import SessionState, RunStatus
@@ -10,12 +11,35 @@ from src.core.logging_config import get_logger
 
 _session_logger = get_logger(__name__)
 
+# 活跃状态集合（配额统计与 TTL 只关注活跃会话）
+_ACTIVE_STATUSES = (RunStatus.CREATED.value, RunStatus.RUNNING.value, "waiting_human")
+
 
 class SessionManager:
     """管理群聊会话的生命周期"""
 
-    def __init__(self):
+    def __init__(self, session_ttl_hours: float = 0):
         self._sessions: dict[str, SessionState] = {}  # 内存存储（后续可换 DB）
+        # 审计修复：会话 TTL（config/default.yaml 的 chat.session_ttl_hours，
+        # 0 = 永不过期）；此前该配置是死配置，会话/checkpoint 只增不减
+        if session_ttl_hours <= 0:
+            from src.core.config import load_default_config
+            session_ttl_hours = float((load_default_config().get("chat", {}) or {}).get("session_ttl_hours", 24) or 24)
+        self._ttl_hours = session_ttl_hours
+
+    def _sweep_expired(self):
+        """惰性驱逐超期会话（审计修复：session_ttl_hours 此前无人消费）"""
+        if self._ttl_hours <= 0:
+            return
+        cutoff = time.time() - self._ttl_hours * 3600
+        stale = []
+        for sid, s in self._sessions.items():
+            updated = s.get("updated_at")
+            ts = updated.timestamp() if isinstance(updated, datetime) else 0
+            if ts and ts < cutoff:
+                stale.append(sid)
+        for sid in stale:
+            del self._sessions[sid]
 
     def create(
         self,
@@ -55,6 +79,7 @@ class SessionManager:
 
     def get(self, session_id: str, tenant_id: str = "") -> Optional[SessionState]:
         """获取会话。若指定 tenant_id，则校验租户归属（不匹配返回 None）"""
+        self._sweep_expired()
         session = self._sessions.get(session_id)
         if session is None:
             return None
@@ -81,10 +106,16 @@ class SessionManager:
             _session_logger.error("checkpoint 保存失败 (session=%s): %s", session_id, e, exc_info=True)
 
     def list_ids(self, tenant_id: str = "") -> list[str]:
+        self._sweep_expired()
         if tenant_id:
             return [sid for sid, s in self._sessions.items() if s.get("tenant_id") == tenant_id]
         return list(self._sessions.keys())
 
     def count_by_tenant(self, tenant_id: str) -> int:
-        """统计某租户的活跃会话数"""
-        return sum(1 for s in self._sessions.values() if s.get("tenant_id") == tenant_id)
+        """统计某租户的活跃会话数（审计修复：completed/failed 不再计入，
+        否则达到 max_sessions 后该租户被永久 429）"""
+        self._sweep_expired()
+        return sum(
+            1 for s in self._sessions.values()
+            if s.get("tenant_id") == tenant_id and s.get("status") in _ACTIVE_STATUSES
+        )

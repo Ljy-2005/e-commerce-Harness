@@ -67,6 +67,19 @@ class TestRateLimiter:
         except asyncio.TimeoutError:
             pytest.fail("acquire timed out")
 
+    @pytest.mark.asyncio
+    async def test_acquire_rejects_invalid_tokens(self):
+        """审计修复：负 tokens 与超大 tokens 直接拒绝（不再反向加桶/永久等待）"""
+        limiter = RateLimiter(default_rpm=600)
+        with pytest.raises(ValueError, match="正数"):
+            await limiter.acquire("p", tokens=0)
+        with pytest.raises(ValueError, match="正数"):
+            await limiter.acquire("p", tokens=-5)
+        with pytest.raises(ValueError, match="过大"):
+            await limiter.acquire("p", tokens=10_000_001)
+        # 正常值不受影响
+        await limiter.acquire("p", tokens=1)
+
 
 class TestRateLimiterSingleton:
     def test_global_singleton(self):

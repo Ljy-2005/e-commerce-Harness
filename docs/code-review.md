@@ -401,6 +401,22 @@
 - `_job_payload` 对非 list/str 的 `product_images` 不再 `len()` 崩溃
 - 删除 `create_session` 的死代码 `if not files`（`File(...)` 已强制）
 
+**第二轮已修复**（正确性/资源治理，2026-08-18，测试 416 全绿；同时提交 git `875382a`）：
+
+| 项 | 修复 |
+|----|------|
+| HITL retry 跳转被 reset 抵消 | `ChatEngine.run(session, start_index=...)` 在 `coordinator.reset()` 之后生效；`resume_after_hitl` retry 改传 `start_index=5`。测试：`test_run_start_index_jumps_to_reviewer` / `test_hitl_retry_resume_does_not_rerun_analyst`（双跑竞态经核实为误报：端点检查与状态置位间无 await 点） |
+| Session 无 TTL + 配额计全量 | `SessionManager(session_ttl_hours)`（默认读 config `chat.session_ttl_hours=24`）+ 惰性驱逐；`count_by_tenant` 只计活跃态（created/running/waiting_human），completed/failed 不再永久占用配额。测试：`test_session_ttl.py` 3 例 |
+| checkpoint/agent_memory 同步 IO 阻塞事件循环 | 全部文件 IO 经 `asyncio.to_thread` 转线程池（`_save_sync`/`_read_entries` 等同步函数拆分） |
+| AuditLogger 锁失效（实例级 asyncio.Lock） | 改模块级 `threading.Lock` 在 `_write_line` 内串行化追加，规避跨实例/跨事件循环问题 |
+| `_runtimes` 无限增长 | engine/batch 的 run() 在终态（completed/failed/cancelled）弹出运行时镜像；后续 retry_step/replicate/control 按需 `setdefault` 重建（测试兼容已验证） |
+| 批量 run 无 done_callback | `_make_done_callback` 取回任务异常并记日志，异常不再成为"未取回的 task 异常" |
+| SQLite 连接依赖 GC 关闭 | `_connect` 改为 `contextlib.contextmanager`：成功提交 + finally 显式 `close()`，覆盖全部调用点 |
+| 限流负 tokens/超大 tokens | `acquire` 拒绝 `tokens<=0`（此前反向给桶加 token）与超大值（此前永久 while 等待）。测试：`test_acquire_rejects_invalid_tokens` |
+| 批次上限双保险 | `BatchScheduler.submit` 增加 `MAX_BATCH_ITEMS=100` 调度器级校验（与 API 端点一致） |
+
+**第三轮候选（剩余，需设计或低价值）**：`update_batch_counts` 绝对覆盖与原子递增并存（#23）、`retry_failed` 终态竞态（#24）、`require_api_key` 死代码清理（#21）、shim `__file__` 语义（#17，已文档化）、`/api/audit` 与 `/api/memory` 租户过滤（需补 tenant 字段）、鉴权矩阵测试、`_mask_key` 仅布尔、A/B 变体/评审上限、HITL 双跑防御性 CAS（可选）。
+
 ### 第二轮待办（MEDIUM ~25 / LOW ~15，未开始）
 
 - **正确性**：HITL 双跑竞态（`/decision` 并发 CAS）+ `_workflow_index` 被 `reset()` 抵消；WAITING_HUMAN 下 cancel 死锁；`update_batch_counts` 绝对覆盖与 `increment_batch` 竞态；`retry_failed` 终态竞态；`_job_payload` 对非 list `product_images` TypeError；直方图把 running 项部分耗时计入

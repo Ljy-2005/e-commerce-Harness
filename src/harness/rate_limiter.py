@@ -50,7 +50,10 @@ class RateLimiter:
         """获取一个请求许可。如果无可用 token，等待直到有。
 
         当指定 tenant_id 时，先检查租户级 bucket，再检查全局 bucket。
+        审计修复：负 tokens 会反向给桶加 token、单次 tokens 超过桶容量会
+        永久 while 等待 —— 两者都直接拒绝。
         """
+        self._validate_tokens(tokens)
         # 租户级限流
         if tenant_id:
             bucket = self._get_or_create(provider, model, tenant_id=tenant_id)
@@ -61,6 +64,13 @@ class RateLimiter:
         bucket = self._get_or_create(provider, model)
         while not bucket.consume(tokens):
             await asyncio.sleep(0.1)
+
+    def _validate_tokens(self, tokens: int):
+        if tokens <= 0:
+            raise ValueError(f"tokens 必须为正数，当前值: {tokens}")
+        if tokens > 10_000_000:
+            # 防御性上限（正常调用远小于此；防止误传超大值导致永久等待）
+            raise ValueError(f"tokens 过大: {tokens}")
 
     def try_acquire(self, provider: str, model: str = "", tokens: int = 1,
                     tenant_id: str = "") -> bool:

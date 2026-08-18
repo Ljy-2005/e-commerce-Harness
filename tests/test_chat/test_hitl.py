@@ -78,6 +78,36 @@ async def test_hitl_resume_after_approve(hitl_setup, sample_image_base64):
 
 
 @pytest.mark.asyncio
+async def test_run_start_index_jumps_to_reviewer(hitl_setup, sample_image_base64):
+    """审计修复：run(start_index=5) 应从审查员继续，不再全量重跑"""
+    engine, session_mgr, registry = hitl_setup
+    session = session_mgr.create(product_images=[sample_image_base64], platform="taobao")
+
+    result = await engine.run(session, start_index=5)
+    assert result["status"] == "completed"
+    senders = [m.get("sender") for m in result["messages"] if m.get("role") == "agent"]
+    assert "商品分析员" not in senders, f"不应重跑分析员: {senders}"
+    assert "审查员" in senders
+
+
+@pytest.mark.asyncio
+async def test_hitl_retry_resume_does_not_rerun_analyst(hitl_setup, sample_image_base64):
+    """审计修复：retry 决策恢复应跳到审查员（start_index 在 reset 之后生效）"""
+    engine, session_mgr, registry = hitl_setup
+    session = session_mgr.create(product_images=[sample_image_base64], platform="taobao")
+    session["status"] = "waiting_human"
+    session["artifacts"]["review"] = {
+        "verdict": "retry", "needs_human_review": True, "top_issues": ["质感不足"],
+    }
+
+    result = await engine.resume_after_hitl(session, "retry")
+    assert result["status"] == "completed"
+    senders = [m.get("sender") for m in result["messages"] if m.get("role") == "agent"]
+    assert "商品分析员" not in senders, f"retry 不应重跑分析员: {senders}"
+    assert "审查员" in senders  # 重跑提示词/生图后从审查员继续
+
+
+@pytest.mark.asyncio
 async def test_hitl_simulated_pause_and_approve(hitl_setup, sample_image_base64):
     """模拟 HITL 暂停→审批→恢复流程"""
     engine, session_mgr, registry = hitl_setup
