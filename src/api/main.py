@@ -3,6 +3,7 @@
 import os
 import asyncio
 import base64
+import hmac
 import json
 import uuid
 import yaml
@@ -929,7 +930,7 @@ async def webhook_decision(job_id: str, request: Request):
     expected_token = os.getenv("ECOMM_WEBHOOK_TOKEN", "")
     if not expected_token:
         raise HTTPException(503, "Webhook 回调未启用（需配置 ECOMM_WEBHOOK_TOKEN）")
-    if request.headers.get("X-Webhook-Token", "") != expected_token:
+    if not hmac.compare_digest(request.headers.get("X-Webhook-Token", ""), expected_token):
         raise HTTPException(401, "无效的 Webhook Token")
     try:
         body = await request.json()
@@ -1282,7 +1283,7 @@ async def ws_workflow_job(websocket: WebSocket, job_id: str):
     expected_key = os.getenv("ECOMM_API_KEY", "")
     if expected_key:
         api_key = websocket.query_params.get("api_key", "")
-        if api_key != expected_key:
+        if not hmac.compare_digest(api_key, expected_key):
             await websocket.close(code=4001, reason="Missing or invalid API Key")
             return
 
@@ -1321,7 +1322,7 @@ async def ws_session(websocket: WebSocket, session_id: str):
     expected_key = os.getenv("ECOMM_API_KEY", "")
     if expected_key:
         api_key = websocket.query_params.get("api_key", "")
-        if api_key != expected_key:
+        if not hmac.compare_digest(api_key, expected_key):
             await websocket.close(code=4001, reason="Missing or invalid API Key")
             return
 

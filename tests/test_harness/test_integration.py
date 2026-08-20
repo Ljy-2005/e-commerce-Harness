@@ -5,6 +5,18 @@ from src.agents.base import BaseAgent, get_circuit_breaker, _get_limiter
 from src.chat.session import SessionManager
 
 
+@pytest.fixture(autouse=True)
+def _isolate_circuit_breakers():
+    """审计修复：隔离全局熔断器单例——此前测试把 "openai" 打到 OPEN 后不复位，
+    造成跨文件/跨测试的顺序耦合（定义在前才通过的隐性依赖）"""
+    import src.agents.base as agents_base
+    saved = dict(agents_base._circuit_breakers)
+    agents_base._circuit_breakers.clear()
+    yield
+    agents_base._circuit_breakers.clear()
+    agents_base._circuit_breakers.update(saved)
+
+
 class _TestAgent(BaseAgent):
     """测试用 Agent"""
     meta_name = "test_agent"

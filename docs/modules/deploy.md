@@ -42,12 +42,21 @@ services:
 
 启动: `docker-compose -f deploy/docker-compose.yml up -d`
 
-### `deploy/nginx.conf`
-生产环境反向代理模板。将 API 和 WebSocket 代理到后端，前端静态文件直接服务。
+### `deploy/nginx.Dockerfile` + `deploy/nginx.conf.template`
+**多阶段构建**（审计修复部署口径：此前 compose 的 `frontend_dist` 卷无人填充，nginx 服务空目录）：
 
 ```
-location /api/ → proxy_pass http://127.0.0.1:8000
-location /ws/  → proxy_pass http://127.0.0.1:8000 (Upgrade: websocket)
+阶段 1 (node:20-alpine)   npm ci + npm run build → dist/
+阶段 2 (nginx:alpine)     COPY dist → /usr/share/nginx/html
+                          COPY nginx.conf.template → /etc/nginx/templates/（envsubst 渲染）
+```
+
+- `nginx.conf.template` 中 `${API_HOST}` 由环境变量注入：docker-compose 下为 `api`（服务名）；本机手动跑容器传 `-e API_HOST=127.0.0.1`
+- 手动部署（非容器）仍使用仓库根 `deploy/nginx.conf`（代理 `127.0.0.1:8000`，静态目录需自行放置构建产物）
+
+```
+location /api/ → proxy_pass http://${API_HOST}:8000
+location /ws/  → proxy_pass http://${API_HOST}:8000 (Upgrade: websocket)
 location /     → SPA static files (try_files $uri /index.html)
 ```
 
@@ -87,10 +96,13 @@ cp .env.example .env
 # 3. 运行测试（Mock Mode，无需 Key）
 pytest
 
-# 4. 启动开发服务器
+# 4. Ruff 静态检查（CI 同款）
+ruff check src tests
+
+# 5. 启动开发服务器
 uvicorn src.api.main:app --reload --port 8000
 
-# 5. CLI 测试
+# 6. CLI 测试
 python -m src.cli run product.jpg --platform taobao
 ```
 
@@ -101,8 +113,9 @@ python -m src.cli run product.jpg --platform taobao
 cp .env.example .env
 # 编辑 .env，填入真实 API Key + ECOMM_API_KEY + ECOMM_CORS_ORIGINS
 
-# 2. Docker 启动
-docker-compose -f deploy/docker-compose.yml up -d
+# 2. Docker 启动（nginx 镜像内含前端构建产物，无需手工填充静态卷）
+docker-compose -f deploy/docker-compose.yml up -d --build
+# 访问 http://localhost：nginx :80 → 前端静态 + /api、/ws 代理到 api 服务
 
 # 3. Nginx 反向代理（可选）
 # 将 deploy/nginx.conf 放入 Nginx sites-enabled/

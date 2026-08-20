@@ -257,7 +257,8 @@ class BatchScheduler:
         done = sum(1 for it in items if it["status"] == ITEM_SUCCEEDED)
         failed = sum(1 for it in items if it["status"] == ITEM_FAILED)
         status = BATCH_COMPLETED if failed == 0 else BATCH_PARTIAL
-        await self.store.update_batch_counts(batch_id, status, done, failed)
+        # 审计修复 #23：原子调和（只增不减），替代绝对覆盖，防与 increment 竞态丢计数
+        await self.store.reconcile_batch_counts(batch_id, status, done, failed)
 
     async def _pause(self, batch_id: str, runtime: _BatchRuntime):
         await self.store.set_batch_status(batch_id, BATCH_PAUSED)

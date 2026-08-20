@@ -6,6 +6,7 @@
 /health 和 /docs 路径始终放行。
 """
 
+import hmac
 import os
 import time
 from collections import defaultdict
@@ -14,7 +15,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
 
-# 白名单路径（无需鉴权）
+# 白名单路径（无需鉴权；精确前缀匹配，防 /healthX 类假想路径放行）
 _PUBLIC_PREFIXES = ("/health", "/docs", "/redoc", "/openapi.json")
 
 # 简易 IP 限流：每分钟最多 N 次失败尝试
@@ -32,9 +33,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request: Request, call_next):
-        # 公开路径放行
+        # 公开路径放行（精确路径或子路径，审计修复：startswith 会放行 /healthX 等假想路径）
         path = request.url.path
-        if any(path.startswith(p) for p in _PUBLIC_PREFIXES):
+        if any(path == p or path.startswith(p + "/") for p in _PUBLIC_PREFIXES):
             return await call_next(request)
 
         # 检查是否配置了 API Key
@@ -53,7 +54,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if not api_key:
             return self._fail(request, "Missing API Key")
 
-        if api_key != expected_key:
+        if not hmac.compare_digest(api_key, expected_key):  # 审计修复：时序安全比较
             return self._fail(request, "Invalid API Key")
 
         return await call_next(request)

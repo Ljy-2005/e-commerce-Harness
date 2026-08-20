@@ -1,45 +1,58 @@
 """新 Provider 基础测试（Mock 模式下验证接口契约）"""
 
-import os
 import pytest
 
+from src.providers import ProviderRegistry
 
-def _clear_env_vars():
-    """临时清除环境变量以测试自动检测"""
-    for k in ("ANTHROPIC_API_KEY", "SEEDREAM_API_KEY", "DASHSCOPE_API_KEY",
-              "BFL_API_KEY", "FAL_KEY", "REPLICATE_API_KEY",
-              "VOLCANO_ACCESS_KEY", "VOLCANO_SECRET_KEY"):
-        os.environ.pop(k, None)
+_ALL_KEY_ENVS = (
+    "ANTHROPIC_API_KEY", "SEEDREAM_API_KEY", "DASHSCOPE_API_KEY",
+    "BFL_API_KEY", "FAL_KEY", "REPLICATE_API_KEY",
+    "VOLCANO_ACCESS_KEY", "VOLCANO_SECRET_KEY",
+    "OPENAI_API_KEY", "DEEPSEEK_API_KEY",
+)
 
 
 class TestProviderAutoDetection:
-    def test_anthropic_detected_with_key(self):
-        os.environ["ANTHROPIC_API_KEY"] = "test-key"
-        from src.providers import get_provider_registry
-        import importlib
-        import src.providers
-        importlib.reload(src.providers)
-        os.environ.pop("ANTHROPIC_API_KEY")
+    """审计修复：此前 4 个探测测试零断言/恒真断言（_ProviderMeta("x", True, ...)），
+    真正的 os.getenv 探测分支零覆盖；现用 monkeypatch + 真实 ProviderRegistry 断言"""
 
-    def test_qwen_detected_with_key(self):
-        os.environ["DASHSCOPE_API_KEY"] = "test-key"
-        from src.providers import _ProviderMeta
-        assert _ProviderMeta("qwen", True, ["vision", "text"]).available is True
-        os.environ.pop("DASHSCOPE_API_KEY")
+    @pytest.fixture(autouse=True)
+    def _clear_keys(self, monkeypatch):
+        for k in _ALL_KEY_ENVS:
+            monkeypatch.delenv(k, raising=False)
 
-    def test_seedream_detected_with_volc_keys(self):
-        os.environ["VOLCANO_ACCESS_KEY"] = "ak"
-        os.environ["VOLCANO_SECRET_KEY"] = "sk"
-        from src.providers import _ProviderMeta
-        assert _ProviderMeta("seedream", True, ["image"]).available is True
-        os.environ.pop("VOLCANO_ACCESS_KEY")
-        os.environ.pop("VOLCANO_SECRET_KEY")
+    def test_anthropic_detected_with_key(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+        reg = ProviderRegistry()
+        assert reg._meta["anthropic"].available is True
+        assert any(p["name"] == "anthropic" for p in reg.list_available())
 
-    def test_flux_detected_with_bfl_key(self):
-        os.environ["BFL_API_KEY"] = "test-key"
-        from src.providers import _ProviderMeta
-        assert _ProviderMeta("flux", True, ["image"]).available is True
-        os.environ.pop("BFL_API_KEY")
+    def test_qwen_detected_with_key(self, monkeypatch):
+        monkeypatch.setenv("DASHSCOPE_API_KEY", "test-key")
+        reg = ProviderRegistry()
+        assert reg._meta["qwen"].available is True
+        assert any(p["name"] == "qwen" for p in reg.list_available())
+
+    def test_seedream_detected_with_volc_keys(self, monkeypatch):
+        monkeypatch.setenv("VOLCANO_ACCESS_KEY", "ak")
+        monkeypatch.setenv("VOLCANO_SECRET_KEY", "sk")
+        reg = ProviderRegistry()
+        assert reg._meta["seedream"].available is True
+
+    def test_seedream_not_detected_with_partial_volc(self, monkeypatch):
+        monkeypatch.setenv("VOLCANO_ACCESS_KEY", "ak")  # 缺 SECRET_KEY
+        reg = ProviderRegistry()
+        assert "seedream" not in reg._meta or reg._meta["seedream"].available is False
+
+    def test_flux_detected_with_bfl_key(self, monkeypatch):
+        monkeypatch.setenv("BFL_API_KEY", "test-key")
+        reg = ProviderRegistry()
+        assert reg._meta["flux"].available is True
+
+    def test_no_keys_only_mock(self):
+        reg = ProviderRegistry()
+        names = {p["name"] for p in reg.list_available()}
+        assert names == {"mock"}  # 无任何 Key → 仅 Mock 可用
 
 
 class TestProviderInstantiation:

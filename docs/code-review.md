@@ -429,6 +429,21 @@
 
 **第四轮候选（剩余）**：`update_batch_counts` 绝对覆盖与原子递增并存（#23，finalize 与 increment 竞态，需统一计数入口）、熔断器全局单例测试污染、Provider 探测零断言（`test_new_providers`）、CSV GBK/BOM 分支、`/api/admin/status` 租户清单对非管理员隐藏、`hmac.compare_digest`、公开前缀精确匹配、C2 凭据绑定租户（架构级，待用户决策）、M5b 平台连接器。
 
+**第四轮已修复**（技术债收尾 + CI + 部署口径，2026-08-18，测试 439 全绿）：
+
+| 项 | 修复 |
+|----|------|
+| #23 计数竞态 | `reconcile_batch_counts`：以 items 表为准、`max()` 只增不减的原子调和，替代 `_finalize` 的绝对覆盖（`update_batch_counts` 保留但不再被 finalize 使用） |
+| 熔断器测试污染 | `test_integration` autouse fixture 快照/还原全局 `_circuit_breakers`，消除跨测试顺序耦合 |
+| Provider 探测零断言 | `test_new_providers` 重写：monkeypatch 各 Key + 真实 `ProviderRegistry` 断言（含"缺 SECRET_KEY 不探测"负例、"无 Key 仅 Mock"） |
+| CSV 编码矩阵 | `_parse_batch_csv` 6 例：GBK / UTF-8 BOM+表头 / 无表头 / 空 / 不可解码 / 缺平台列默认 taobao |
+| 时序安全比较 | `hmac.compare_digest` 覆盖 AuthMiddleware / webhook token / 双 WS `api_key` |
+| 公开前缀精确匹配 | `/health` 等白名单改为精确路径或 `p + "/"` 子路径匹配，封堵 `/healthX` 假想路径 |
+| CI 接入 | `.github/workflows/ci.yml`：pytest 全量 + ruff（E/F/I/W）+ 前端 npm ci/build（Python 3.12 / Node 20）；ruff 本地因 pip 网络受限仅在 CI 运行 |
+| Docker 部署口径 | 多阶段 `deploy/nginx.Dockerfile`（node 构建 → nginx 镜像内含 dist）+ `nginx.conf.template`（envsubst 注入 `API_HOST`）+ compose 废除空 `frontend_dist` 卷 |
+
+**第五轮候选**：`/api/admin/status` 租户清单仅管理员可见（当前端点本身已受管理面保护，标注为 by-design）、C2 凭据绑定租户（架构级，待用户决策）、M5b 平台连接器 / 审批 SLA 业务矩阵、Dashboard 轮询失败横幅（前端 L6）、前端依赖 `npm outdated` 核查。
+
 **第二轮待办（MEDIUM ~25 / LOW ~15）** —— 已随第二轮/第三轮完成，剩余见第四轮候选。
 
 - ~~**正确性**：HITL 双跑竞态 + `_workflow_index` 被 `reset()` 抵消；WAITING_HUMAN 下 cancel 死锁；`retry_failed` 终态竞态；`_job_payload` 非 list TypeError；直方图计 running 部分耗时~~ → ✅ 已修复（决策 19/20）

@@ -12,7 +12,7 @@
 工作目录 D:\vscode-project\e-commerce Harness。
 请先读 docs/progress.md（第 0 节之外的全部内容）和 docs/workflow-design.md，
 然后按 progress.md 第 5.3 节「遗留的开放决策」选择下一项任务继续。
-常用命令：pytest（全量测试，当前 431 通过）、
+常用命令：pytest（全量测试，当前 439 通过）、
 前端 cd frontend && npm run build、
 后端 python -m uvicorn src.api.main:app --host 127.0.0.1 --port 8000、
 前端开发 cd frontend && npm run dev（端口 5173）。
@@ -32,7 +32,7 @@
 | Web 框架 | FastAPI + Uvicorn（REST + WebSocket） |
 | 前端 | React SPA（Vite） |
 | 数据库 | 文件持久化（checkpoint JSONL / 审计日志 JSONL），无外部 DB 依赖 |
-| 测试 | pytest（asyncio_mode=auto），41 个测试文件，431 个测试通过 |
+| 测试 | pytest（asyncio_mode=auto），41 个测试文件，439 个测试通过 |
 | 部署 | Docker 多阶段构建（Node 前端 + Python 后端 + Nginx） |
 
 ---
@@ -83,7 +83,8 @@
 | Workflow 编排层 | ✅ M1-M5a | `src/workflow/`：YAML 模板 DSL（6 类节点+group_chat）、极简表达式、SQLite+事件溯源、状态机（自动/手动挡、断点续跑、回跳重试、人工审批+SLA 自动决策）、6 个内置模板；批量调度器；一键风格复刻；webhook 出站/入站连接器；模板导入导出；**批量报表（M5a）** |
 | React 前端 | ✅ 完成 | 侧边栏 9 页工作台：仪表盘 / 会话（群聊插话）/ 工作流（画廊+画布+一键复刻）/ 批量任务（列表+**数据报表**）/ Agent 配置 / 设置 / 审计 / 记忆 |
 | CLI | ✅ 完成 | `python -m src.cli run` |
-| Docker 部署 | ✅ 完成 | 多阶段构建 + 非 root 用户 + HEALTHCHECK + nginx |
+| Docker 部署 | ✅ 完成 | 多阶段构建（Node 前端 + Python 后端 + Nginx）+ 非 root 用户 + HEALTHCHECK |
+| CI/CD | ✅ 已配置 | GitHub Actions：pytest 全量 + ruff（E/F/I/W）+ 前端生产构建（`.github/workflows/ci.yml`） |
 
 ### 2.3 审计修复进度
 
@@ -100,12 +101,13 @@
 
 ### 2.4 测试覆盖
 
-- **41 个测试文件**，**431 个测试通过**（`pytest` 全量 Mock Mode，无自有 RuntimeWarning）
+- **41 个测试文件**，**439 个测试通过**（`pytest` 全量 Mock Mode，无自有 RuntimeWarning）
 - 时序加固：批量死信重跑测试改为 spy 断言（不再依赖轮询瞬时状态），全量运行多次无偶发失败
 - M5a 批量报表：聚合逻辑 3 测试（总览/模板/直方图/失败原因/租户隔离）+ 端点 3 测试（含路由防吞回归）
 - 四域审计第一轮（决策 18）：+34 测试（路径穿越 10 参数、租户 403/404、retry_step 重启、model_override 传播、SSRF 8 组、上传 413、批次上限、报表幽灵条目、熔断计 error dict、cancel 唤醒等）
 - 第二轮（决策 19）：+6 测试（Session TTL 3 例、HITL start_index 2 例、限流参数校验 1 例）
 - 第三轮（决策 20）：+15 测试（鉴权矩阵 13 例：401/错 Key/200/429/WS 4001 与 4004/管理面 403；audit 租户过滤、memory 租户过滤、A/B 变体/评审上限）
+- 第四轮（决策 21）：+8 测试（CSV GBK/BOM/无表头/空/不可解码矩阵 6 例、Provider 探测重写为真实断言 +2 净增）
 - 覆盖范围：
   - `test_api/` — FastAPI 端点测试（含设置/会话列表/密钥持久化/模型映射/群聊插话 21 个新测试）
   - `test_agents/` — 9 个 Agent 单测（含风格拆解员插件化注册）
@@ -242,6 +244,7 @@ src/
 | 25 | "先检查一下现在的项目有什么问题" | 四域并行审计（安全/后端正确性/测试质量/前端+文档）+ 自查，发现 4 CRITICAL + 10 HIGH + ~25 MEDIUM + ~15 LOW；逐项核验（路径穿越、报表幽灵条目等实测复现）；经用户确认后完成第一轮修复（CRITICAL+HIGH 全清，见里程碑表），新增 31 测试，pytest 407 全绿、前端 build 成功 |
 | 26 | "继续任务吧" | 提交 git `875382a`（固化前 6 轮 v0.2.0）；完成第二轮 MEDIUM（决策 19）：HITL retry start_index（reset 后生效，双跑竞态核实为误报）、Session TTL + 配额只计活跃态、checkpoint/agent_memory 转 to_thread、AuditLogger 模块级锁、_runtimes 终态清理、批量 done_callback、SQLite 显式 close、限流参数防护、批次上限双保险；+6 测试，pytest 416 全绿 |
 | 27 | "继续" | 第三轮收尾（决策 20）：鉴权矩阵测试（401/错 Key/200/429/WS 4001·4004/管理面 403，`test_api/test_auth.py` 13 例）；audit/memory 租户过滤（AuditLogger 补 tenant_id 字段、AgentMemory 按租户过滤、端点传租户）；`_mask_key` 布尔化（不再返回密钥片段 + 前端适配 + 删除死代码）；A/B 变体（≤8）/评审（≤5）上限；删除 `require_api_key` 死代码；batch retry_failed 终态竞态（requeue 标志 + 循环重入）；+15 测试，pytest 431 全绿 |
+| 28 | "后面还有什么计划" + "按你的建议来" | 第四轮 + 工程化配套（决策 21）：① 技术债收尾——`reconcile_batch_counts` 原子调和（只增不减，替代绝对覆盖）、熔断器全局单例测试隔离（autouse 快照/还原）、Provider 探测测试重写为真实断言（monkeypatch + 真注册表）、CSV GBK/BOM/无表头/空/不可解码矩阵、`hmac.compare_digest`（auth/webhook/双 WS）、公开前缀精确匹配（防 /healthX）；② CI 接入（GitHub Actions：pytest + ruff + 前端构建；ruff 本地因 pip 网络受限仅在 CI 运行）；③ Docker 部署口径修复（多阶段 `nginx.Dockerfile` 前端产物打进镜像 + `nginx.conf.template` envsubst + compose 改造，废除空 `frontend_dist` 卷）；+8 测试，pytest 439 全绿 |
 
 ### 5.2 关键决策点
 
@@ -306,6 +309,9 @@ M5a 批量报表的三个实现要点：① **数据源联表**：条目耗时/�
 
 **决策 20：第三轮收尾（隔离缺口 + 安全边界测试）**
 继续"继续"→ 第三轮把四域审计剩余的高价值项清掉：① **租户过滤下沉到存储层**——audit 条目补 `tenant_id` 字段（旧条目无该字段 → 过滤时按空值处理，不影响存量）、AgentMemory 的 remember/recall/stats 全部加租户参数，API 端点传 `X-Tenant-ID`，调用链（engine 记忆召回、prompt_gen 相似召回）同步透传；② **鉴权矩阵测试优先于代码**——安全边界（401/429/WS/管理面）此前零覆盖，先写 `test_api/test_auth.py` 13 例再改代码，`_AUTH_FAILURES` 用 autouse fixture 复位防交叉污染；③ **`_mask_key` 布尔化**——密钥片段（前 4 后 4 共 8 字符）从 API 响应中彻底移除（配置态布尔即可），前端同步去掉 masked 展示，原 `_mask_key` 死代码删除；④ **batch retry_failed 竞态**用"requeue 标志 + run 循环重入"修复：控制指令在收尾窗口到达时不再丢项——标志让当前 run 在 finalize 后重新入队一轮（无标志时保持原有"一次收尾即终态"语义，避免空转）。
+
+**决策 21：第四轮技术债收尾 + CI + 部署口径**
+"按你的建议来"→ 三线并行：① **技术债**——`update_batch_counts` 竞态改为 `reconcile_batch_counts`（以 items 表为准、`max()` 只增不减的原子调和，替代绝对覆盖）；熔断器全局单例用 autouse fixture 快照/还原隔离（消除"定义在前才通过"的顺序耦合）；Provider 探测测试从零断言/恒真断言重写为 monkeypatch + 真实 `ProviderRegistry` 断言（含"部分火山密钥不探测"负例）；CSV 编码矩阵补 GBK/BOM/无表头/空/不可解码 6 例；`hmac.compare_digest` 覆盖 auth/webhook/双 WS；公开前缀从 `startswith` 改为精确路径或子路径匹配；② **CI**——新增 `.github/workflows/ci.yml`（pytest 全量 + ruff E/F/I/W + 前端 npm ci/build）；本地 pip 网络受限装不了 ruff，明确"ruff 仅在 CI 运行"并写进 deploy.md；③ **部署口径**——多阶段 `nginx.Dockerfile`（node 构建 → 产物打进 nginx 镜像）+ `nginx.conf.template`（envsubst 注入 `API_HOST`，compose 下为 `api` 服务名）+ compose 废除空 `frontend_dist` 卷，progress.md 的"Docker 多阶段构建"从漂移变成事实。
 
 ### 5.3 遗留的开放决策
 

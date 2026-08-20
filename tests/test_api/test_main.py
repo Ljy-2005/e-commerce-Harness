@@ -281,6 +281,50 @@ class TestABTestEndpoint:
         assert "1-5" in resp.json()["detail"]
 
 
+class TestParseBatchCsv:
+    """_parse_batch_csv 编码矩阵（审计修复：此前仅 UTF-8 快乐路径有测试）"""
+
+    def test_gbk_encoded(self):
+        from src.main import _parse_batch_csv
+        raw = "护肝片,taobao,保健品\n".encode("gbk")
+        items = _parse_batch_csv(raw)
+        assert len(items) == 1
+        assert items[0]["product_info"] == "护肝片"
+        assert items[0]["platform"] == "taobao"
+        assert items[0]["category_hint"] == "保健品"
+
+    def test_utf8_bom_with_header(self):
+        from src.main import _parse_batch_csv
+        raw = "\ufeffproduct_info,platform\n维生素C,taobao\n".encode("utf-8")
+        items = _parse_batch_csv(raw)
+        assert len(items) == 1
+        assert items[0]["product_info"] == "维生素C"
+
+    def test_no_header(self):
+        from src.main import _parse_batch_csv
+        items = _parse_batch_csv("商品A,jd\n".encode("utf-8"))
+        assert len(items) == 1
+        assert items[0]["product_info"] == "商品A"
+        assert items[0]["platform"] == "jd"
+
+    def test_empty_csv_raises(self):
+        from src.main import _parse_batch_csv
+        import pytest as _pytest
+        with _pytest.raises(ValueError, match="CSV 为空"):
+            _parse_batch_csv(b"")
+
+    def test_undecodable_raises(self):
+        from src.main import _parse_batch_csv
+        import pytest as _pytest
+        with _pytest.raises(ValueError, match="编码无法识别"):
+            _parse_batch_csv(b"\xff\xfe\xfd\xfc\xff")
+
+    def test_missing_platform_defaults_taobao(self):
+        from src.main import _parse_batch_csv
+        items = _parse_batch_csv("商品B\n".encode("utf-8"))
+        assert items[0]["platform"] == "taobao"
+
+
 class TestInterject:
     """M3 群聊插话 — REST + WS 双向"""
 

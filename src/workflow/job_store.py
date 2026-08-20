@@ -330,12 +330,35 @@ class JobStore:
 
     async def update_batch_counts(self, batch_id: str, status: str,
                                   done: int, failed: int) -> None:
+        """绝对覆盖计数（审计修复：仅用于最终调和，见 reconcile_batch_counts）"""
         def _do():
             with _connect(self.db_path) as conn:
                 conn.execute(
                     """UPDATE batches SET status=?, done=?, failed=?, updated_at=?
                        WHERE batch_id=?""",
                     (status, done, failed, datetime.now(timezone.utc).isoformat(), batch_id),
+                )
+        await asyncio.to_thread(_do)
+
+    async def reconcile_batch_counts(self, batch_id: str, status: str,
+                                     done: int, failed: int) -> None:
+        """以 items 表为准做原子调和：取 max(当前计数, 目标值)，只增不减。
+
+        审计修复 #23：此前 _finalize 绝对覆盖 done/failed，与 worker 的
+        increment_batch 并存时可能丢计数（并发读改写竞态）。
+        """
+        def _do():
+            with _connect(self.db_path) as conn:
+                row = conn.execute(
+                    "SELECT done, failed FROM batches WHERE batch_id=?", (batch_id,)
+                ).fetchone()
+                cur_done = row["done"] if row else 0
+                cur_failed = row["failed"] if row else 0
+                conn.execute(
+                    """UPDATE batches SET status=?, done=?, failed=?, updated_at=?
+                       WHERE batch_id=?""",
+                    (status, max(cur_done, done), max(cur_failed, failed),
+                     datetime.now(timezone.utc).isoformat(), batch_id),
                 )
         await asyncio.to_thread(_do)
 
