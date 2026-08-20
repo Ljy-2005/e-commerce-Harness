@@ -1,0 +1,60 @@
+# 审批 SLA 业务矩阵 — M5b 演示：审查评分驱动超时自动决策
+# sla_matrix 规则按声明序表达式匹配（复用极简表达式引擎）：
+#   ≥75 自动通过 / ≥60 自动拒绝 / 其余继续等待人工
+name: 审批矩阵演示
+version: "1.0.0"
+description: 审批 SLA 业务矩阵：审查评分驱动超时自动决策（≥75 自动通过 / ≥60 自动拒绝 / 默认继续等待）
+category: 智能协作
+icon: "🧮"
+inputs:
+  - key: product_images
+    label: 商品图片
+    type: images
+    required: true
+  - key: platform
+    label: 目标平台
+    type: select
+    options: [taobao, amazon, xiaohongshu, douyin, jd, shopify]
+    default: taobao
+nodes:
+  validate:
+    type: tool
+    tool: validate_image
+    inputs:
+      images: $inputs.product_images
+  analyze:
+    type: agent
+    agent: 商品分析员
+    task: 分析上传的商品图片
+  prompt:
+    type: agent
+    agent: 提示词生成员
+    task: 基于分析结果生成提示词
+  generate:
+    type: agent
+    agent: 生图员
+    task: 使用提示词生成商品图
+  review:
+    type: agent
+    agent: 审查员
+    task: 按 5 维度审查图片质量
+  human_approval:
+    type: human
+    prompt: 请人工确认图片质量（SLA 超时按评分矩阵自动决策）
+    sla_minutes: 0.001          # 演示用极短 SLA（生产按业务配置，如 60）
+    sla_matrix:
+      - when: $steps.review.outputs.overall_score >= 75
+        action: auto_approve
+      - when: $steps.review.outputs.overall_score >= 60
+        action: auto_reject
+      - default: keep_waiting
+    routes:
+      approve: success_end
+      retry: prompt
+      reject: failed_end
+  success_end:
+    type: end
+    status: completed
+  failed_end:
+    type: end
+    status: failed

@@ -12,7 +12,7 @@
 工作目录 D:\vscode-project\e-commerce Harness。
 请先读 docs/progress.md（第 0 节之外的全部内容）和 docs/workflow-design.md，
 然后按 progress.md 第 5.3 节「遗留的开放决策」选择下一项任务继续。
-常用命令：pytest（全量测试，当前 439 通过）、
+常用命令：pytest（全量测试，当前 446 通过）、
 前端 cd frontend && npm run build、
 后端 python -m uvicorn src.api.main:app --host 127.0.0.1 --port 8000、
 前端开发 cd frontend && npm run dev（端口 5173）。
@@ -32,7 +32,7 @@
 | Web 框架 | FastAPI + Uvicorn（REST + WebSocket） |
 | 前端 | React SPA（Vite） |
 | 数据库 | 文件持久化（checkpoint JSONL / 审计日志 JSONL），无外部 DB 依赖 |
-| 测试 | pytest（asyncio_mode=auto），41 个测试文件，439 个测试通过 |
+| 测试 | pytest（asyncio_mode=auto），41 个测试文件，446 个测试通过 |
 | 部署 | Docker 多阶段构建（Node 前端 + Python 后端 + Nginx） |
 
 ---
@@ -108,6 +108,7 @@
 - 第二轮（决策 19）：+6 测试（Session TTL 3 例、HITL start_index 2 例、限流参数校验 1 例）
 - 第三轮（决策 20）：+15 测试（鉴权矩阵 13 例：401/错 Key/200/429/WS 4001 与 4004/管理面 403；audit 租户过滤、memory 租户过滤、A/B 变体/评审上限）
 - 第四轮（决策 21）：+8 测试（CSV GBK/BOM/无表头/空/不可解码矩阵 6 例、Provider 探测重写为真实断言 +2 净增）
+- M5b（决策 22）：+7 测试（sla_matrix 单元 5 例：顺序匹配/default/遗留/缺失值安全 + approval_matrix 端到端 2 例：评分驱动 auto_approve、矩阵 default auto_reject）
 - 覆盖范围：
   - `test_api/` — FastAPI 端点测试（含设置/会话列表/密钥持久化/模型映射/群聊插话 21 个新测试）
   - `test_agents/` — 9 个 Agent 单测（含风格拆解员插件化注册）
@@ -245,6 +246,7 @@ src/
 | 26 | "继续任务吧" | 提交 git `875382a`（固化前 6 轮 v0.2.0）；完成第二轮 MEDIUM（决策 19）：HITL retry start_index（reset 后生效，双跑竞态核实为误报）、Session TTL + 配额只计活跃态、checkpoint/agent_memory 转 to_thread、AuditLogger 模块级锁、_runtimes 终态清理、批量 done_callback、SQLite 显式 close、限流参数防护、批次上限双保险；+6 测试，pytest 416 全绿 |
 | 27 | "继续" | 第三轮收尾（决策 20）：鉴权矩阵测试（401/错 Key/200/429/WS 4001·4004/管理面 403，`test_api/test_auth.py` 13 例）；audit/memory 租户过滤（AuditLogger 补 tenant_id 字段、AgentMemory 按租户过滤、端点传租户）；`_mask_key` 布尔化（不再返回密钥片段 + 前端适配 + 删除死代码）；A/B 变体（≤8）/评审（≤5）上限；删除 `require_api_key` 死代码；batch retry_failed 终态竞态（requeue 标志 + 循环重入）；+15 测试，pytest 431 全绿 |
 | 28 | "后面还有什么计划" + "按你的建议来" | 第四轮 + 工程化配套（决策 21）：① 技术债收尾——`reconcile_batch_counts` 原子调和（只增不减，替代绝对覆盖）、熔断器全局单例测试隔离（autouse 快照/还原）、Provider 探测测试重写为真实断言（monkeypatch + 真注册表）、CSV GBK/BOM/无表头/空/不可解码矩阵、`hmac.compare_digest`（auth/webhook/双 WS）、公开前缀精确匹配（防 /healthX）；② CI 接入（GitHub Actions：pytest + ruff + 前端构建；ruff 本地因 pip 网络受限仅在 CI 运行）；③ Docker 部署口径修复（多阶段 `nginx.Dockerfile` 前端产物打进镜像 + `nginx.conf.template` envsubst + compose 改造，废除空 `frontend_dist` 卷）；+8 测试，pytest 439 全绿 |
+| 29 | "继续" | M5b 审批 SLA 业务矩阵（决策 22）：engine `sla_matrix`（表达式规则顺序匹配 → default → 遗留 on_sla_timeout，超时事件携带命中策略）；`approval_matrix` 演示模板（评分≥75 自动通过/≥60 自动拒绝/默认继续等待）；前端 Dashboard 轮询失败横幅（审计 L6）；+7 测试，pytest 446 全绿 |
 
 ### 5.2 关键决策点
 
@@ -312,6 +314,9 @@ M5a 批量报表的三个实现要点：① **数据源联表**：条目耗时/�
 
 **决策 21：第四轮技术债收尾 + CI + 部署口径**
 "按你的建议来"→ 三线并行：① **技术债**——`update_batch_counts` 竞态改为 `reconcile_batch_counts`（以 items 表为准、`max()` 只增不减的原子调和，替代绝对覆盖）；熔断器全局单例用 autouse fixture 快照/还原隔离（消除"定义在前才通过"的顺序耦合）；Provider 探测测试从零断言/恒真断言重写为 monkeypatch + 真实 `ProviderRegistry` 断言（含"部分火山密钥不探测"负例）；CSV 编码矩阵补 GBK/BOM/无表头/空/不可解码 6 例；`hmac.compare_digest` 覆盖 auth/webhook/双 WS；公开前缀从 `startswith` 改为精确路径或子路径匹配；② **CI**——新增 `.github/workflows/ci.yml`（pytest 全量 + ruff E/F/I/W + 前端 npm ci/build）；本地 pip 网络受限装不了 ruff，明确"ruff 仅在 CI 运行"并写进 deploy.md；③ **部署口径**——多阶段 `nginx.Dockerfile`（node 构建 → 产物打进 nginx 镜像）+ `nginx.conf.template`（envsubst 注入 `API_HOST`，compose 下为 `api` 服务名）+ compose 废除空 `frontend_dist` 卷，progress.md 的"Docker 多阶段构建"从漂移变成事实。
+
+**决策 22：M5b 审批 SLA 业务矩阵**
+"继续"→ M5b 第一块落地：① **矩阵 DSL 复用表达式引擎**——`sla_matrix` 是 `when: <极简表达式> + action` 规则列表，按声明序匹配（与 condition 节点同构），`default` 兜底，未命中回退遗留 `on_sla_timeout`；规则引用 `$steps.review.outputs.overall_score` 等上游产出，天然复用"缺失值恒 False"的安全语义；② **可审计性**——步骤输出保留原始决策（`auto_approve`，M4 决策 14 语义），路由键归一化，超时事件新增 `policy` 字段标记命中来源（`matrix:<expr>` / `matrix:default` / `legacy`）；③ **测试先行的两个教训**——`build_scope` 的 `step_outputs` 参数要求裸 outputs（测试助手多包一层 `outputs` 导致路径解析失败，先跑红再修）；端到端断言需区分"原始决策 vs 归一化路由键"。
 
 ### 5.3 遗留的开放决策
 

@@ -210,3 +210,96 @@ class TestCancelWhileWaitingHuman:
         await asyncio.wait_for(task, timeout=30)
         j = await store.get_job(job.job_id)
         assert j.status.value == "cancelled"
+
+
+class TestSlaMatrix:
+    """M5b 审批 SLA 业务矩阵：表达式规则顺序匹配 → default → 遗留策略"""
+
+    def _scope(self, score):
+        """build_scope 的 step_outputs 参数 = {node: 裸 outputs}（勿再包 outputs 层）"""
+        from src.workflow import expressions as expr
+        return expr.build_scope(
+            {"platform": "taobao"},
+            {"review": {"overall_score": score}},
+            {"retries": 0},
+        )
+
+    def test_first_match_wins(self, engine):
+        cfg = {"sla_matrix": [
+            {"when": "$steps.review.outputs.overall_score >= 75", "action": "auto_approve"},
+            {"when": "$steps.review.outputs.overall_score >= 60", "action": "auto_reject"},
+        ]}
+        action, policy = engine._resolve_sla_policy(cfg, self._scope(82))
+        assert action == "auto_approve"
+        assert policy.startswith("matrix:")
+        action, _ = engine._resolve_sla_policy(cfg, self._scope(65))
+        assert action == "auto_reject"
+
+    def test_default_fallback(self, engine):
+        cfg = {"sla_matrix": [
+            {"when": "1 == 2", "action": "auto_approve"},
+            {"default": "keep_waiting"},
+        ]}
+        action, policy = engine._resolve_sla_policy(cfg, self._scope(10))
+        assert action == "keep_waiting"
+        assert policy == "matrix:default"
+
+    def test_legacy_on_sla_timeout_fallback(self, engine):
+        cfg = {"on_sla_timeout": "auto_reject"}
+        action, policy = engine._resolve_sla_policy(cfg, self._scope(10))
+        assert action == "auto_reject"
+        assert policy == "legacy"
+
+    def test_no_policy_keep_waiting(self, engine):
+        action, _ = engine._resolve_sla_policy({}, self._scope(10))
+        assert action == "keep_waiting"
+
+    def test_missing_value_safe_false(self, engine):
+        """缺失的 overall_score → 条件恒 False，不抛异常"""
+        cfg = {"sla_matrix": [{"when": "$steps.review.outputs.overall_score >= 75",
+                               "action": "auto_approve"},
+                              {"default": "auto_reject"}]}
+        scope = {"inputs": {}, "steps": {}, "ctx": {}}
+        action, _ = engine._resolve_sla_policy(cfg, scope)
+        assert action == "auto_reject"
+
+
+class TestApprovalMatrixTemplate:
+    """M5b approval_matrix 模板端到端：评分驱动超时自动决策"""
+
+    @pytest.mark.asyncio
+    async def test_score_based_auto_approve(self, engine, store, job_inputs):
+        from src.workflow.models import JobStatus
+        job = templates.instantiate("approval_matrix", job_inputs, mode="auto")
+        await store.create_job(job)
+        task = await engine.start(job)
+        await asyncio.wait_for(task, timeout=60)
+
+        job = await store.get_job(job.job_id)
+        assert job.status == JobStatus.COMPLETED
+        steps = await store.get_steps(job.job_id)
+        human = next(s for s in steps if s.node == "human_approval")
+        # Mock 审查员固定 82 分 → 矩阵首条（>=75）命中 → 自动通过
+        # （输出保留原始决策 auto_approve，路由键 approve 归一化——M4 决策 14 可审计语义）
+        assert human.outputs.get("decision") == "auto_approve"
+        assert human.outputs.get("sla_timeout") is True
+
+    @pytest.mark.asyncio
+    async def test_auto_reject_via_matrix(self, engine, store, job_inputs):
+        """矩阵 default=auto_reject → 超时自动拒绝 → job failed"""
+        from src.workflow.models import JobStatus
+        job = templates.instantiate("scene_suite", job_inputs, mode="auto")
+        await store.create_job(job)
+        engine._runtimes[job.job_id] = _Runtime()
+        step = StepRecord(job_id=job.job_id, node="h", type="human", order=0)
+        cfg = {"type": "human", "prompt": "x",
+               "sla_minutes": 0.001,
+               "sla_matrix": [
+                   {"when": "$steps.review.outputs.overall_score >= 200", "action": "auto_approve"},
+                   {"default": "auto_reject"},
+               ],
+               "routes": {"approve": "ok", "retry": "retry_node", "reject": "failed_end"}}
+        next_node = await engine._run_human(job, cfg, step, {"h": None})
+        assert next_node == "failed_end"
+        assert step.outputs.get("decision") == "auto_reject"  # 原始决策保留（可审计）
+        assert step.outputs.get("sla_timeout") is True

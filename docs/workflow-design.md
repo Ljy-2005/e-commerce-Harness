@@ -249,7 +249,7 @@ run(job, mode):
 | `agent` | 构造轻量 session（`{task, artifacts}` 复用现有结构）→ 调用 `BaseAgent.execute(task_brief, session)`。**自动获得**熔断/限流/重试/超时/成本追踪/审计；输出写入 `$steps.<node>.outputs` |
 | `tool` | 从 `tools.py` 注册表查找（`validate_image`、`post_process_images`、`webhook_notify` 等），同步/异步纯函数，带超时 |
 | `condition` | 纯表达式求值 → 匹配 rules 返回 goto；`default` 兜底 |
-| `human` | 置 WAITING_HUMAN + 广播；决策 API 写入事件后按 routes 恢复（重试路径 `$ctx.retries += 1`）；SLA 超时按 `on_sla_timeout` 自动决策（Phase 2 实现，先 keep_waiting） |
+| `human` | 置 WAITING_HUMAN + 广播；决策 API 写入事件后按 routes 恢复（重试路径 `$ctx.retries += 1`）；SLA 超时按 `on_sla_timeout` 自动决策（Phase 2 实现，先 keep_waiting）；**M5b：`sla_matrix` 业务矩阵** —— 表达式规则按声明序匹配（`when: $steps.review.outputs.overall_score >= 75` → `action: auto_approve`），`default` 兜底，未命中回退 `on_sla_timeout`，超时事件携带命中策略（`policy: matrix:<expr> | matrix:default | legacy`） |
 | `subworkflow` | 以当前 `$steps/<node>` 为隔离命名空间实例化子模板（Skill 组合，Phase 2） |
 | `end` | 写终态 |
 
@@ -376,6 +376,7 @@ batches(batch_id, template_name, tenant_id, status, total, done, failed,
 | `free_chat` 自由群聊（迁移现有模式） | group_chat 单节点 | 与现有 5 种协作模式完全等价，保证向后兼容 |
 | `style_replicate` 风格复刻（M3） | 参考图拆解 → 注入提示词 → 从 prompt 节点重跑 | 一键拉片复刻 |
 | `light_approval` 轻审批（M4） | 验证 → 人工审批（SLA 超时自动决策演示） | 审批 SLA 演示 |
+| `approval_matrix` 审批矩阵（M5b） | 标准流水线 + 审查评分驱动的 SLA 业务矩阵（≥75 自动通过 / ≥60 自动拒绝 / 默认继续等待） | 业务审批矩阵演示 |
 
 ---
 
@@ -403,7 +404,7 @@ batches(batch_id, template_name, tenant_id, status, total, done, failed,
 | **M3（Phase 2b）** | 一键风格复刻（新增「风格拆解员」Agent，YAML 注册零核心改动）+ 群聊插话（WS 双向指令） | ✅ 已交付：风格拆解员（插件化 class 注册，9 Agent）+ style_replicate 模板（双图片输入）+ replicate API + 引擎风格注入重跑；群聊插话（REST + WS 双向 + 前端输入框）；15 个新测试，风格要素匹配由 spy 测试验证 |
 | **M4（Phase 3）** | 审批 SLA 超时自动决策 + webhook/连接器接口 + 模板导入导出 | ✅ 已交付：human 节点 SLA（auto_approve/auto_reject/keep_waiting + 事件）；webhook_notify 出站工具 + POST /api/webhooks/workflows/{id}/decision 入站回调（token 鉴权）；模板导出/导入（校验/防覆盖/force）；演示模板 light_approval；14 个新测试 |
 | **M5a（Phase 4a）** | 批量任务报表页 | ✅ 已交付：`JobStore.get_batch_report`（总览/模板成功率/耗时直方图/失败原因 Top-5，租户隔离）+ `GET /api/workflows/batches/report` + 前端批量页「数据报表」标签（recharts 图表）；6 个新测试 |
-| **M5b（Phase 4b，候选）** | 平台级连接器（淘宝/Amazon 拉取与回传）、审批 SLA 业务矩阵 | ⏳ 待实施（见 progress.md §5.3） |
+| **M5b（Phase 4b）** | 审批 SLA 业务矩阵 | ✅ 已交付：`sla_matrix` 表达式规则（顺序匹配 → default → 遗留 on_sla_timeout），超时事件携带命中策略；`approval_matrix` 演示模板（评分≥75 自动通过 / ≥60 自动拒绝 / 默认继续等待）；7 个新测试。**剩余候选**：平台级连接器（淘宝/Amazon 拉取与回传，见 progress.md §5.3） |
 
 ---
 

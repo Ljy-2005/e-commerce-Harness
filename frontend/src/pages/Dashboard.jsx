@@ -70,6 +70,14 @@ export default function Dashboard() {
         </span>
       </p>
 
+      {/* 审计修复 L6：首次加载成功后，轮询失败不再静默降级——显示过期提示横幅 */}
+      {error && status && (
+        <div className="alert alert-warn mb-2">
+          ⚠ 状态刷新失败（展示数据可能已过期）：{error}
+          <button className="btn btn-ghost btn-sm ml-1" onClick={refresh}>重试</button>
+        </div>
+      )}
+
       {/* 统计卡 */}
       <div className="grid-4 mb-2">
         <div className="card stat-card">

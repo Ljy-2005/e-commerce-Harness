@@ -413,11 +413,13 @@ class WorkflowEngine:
         action = ""
         sla_used = False
         sla_minutes = float(cfg.get("sla_minutes", 0) or 0)
-        timeout_action = cfg.get("on_sla_timeout", "keep_waiting")
+        # M5b 审批 SLA 业务矩阵：表达式规则顺序匹配 → default → 遗留 on_sla_timeout
+        scope = expr.build_scope(job.inputs, runtime.step_outputs, job.context)
+        timeout_action, sla_policy = self._resolve_sla_policy(cfg, scope)
 
         if not runtime.human_action:
             if sla_minutes > 0 and timeout_action in ("auto_approve", "auto_reject"):
-                # M4 SLA 超时自动决策
+                # M4 SLA 超时自动决策（M5b：策略可来自 sla_matrix）
                 try:
                     await asyncio.wait_for(runtime.human_event.wait(), timeout=sla_minutes * 60)
                 except asyncio.TimeoutError:
@@ -425,6 +427,7 @@ class WorkflowEngine:
                     sla_used = True
                     await self._emit(job_id, "human_sla_timeout", {
                         "node": step.node, "action": action, "sla_minutes": sla_minutes,
+                        "policy": sla_policy,
                     })
                 else:
                     action = runtime.human_action
@@ -448,6 +451,24 @@ class WorkflowEngine:
         return (cfg.get("routes") or {}).get(route_action, graph.get(step.node))
 
     # ── 路由与辅助 ──
+
+    def _resolve_sla_policy(self, cfg: dict, scope: dict) -> tuple[str, str]:
+        """解析 human 节点的 SLA 超时策略（M5b 审批 SLA 业务矩阵）
+
+        优先级：sla_matrix 规则按声明序表达式匹配（命中即返回）→ 含 default 的
+        规则兜底 → 遗留 on_sla_timeout → keep_waiting。
+        返回 (action, policy_label)，label 供事件/审计标记命中来源。
+        """
+        matrix = cfg.get("sla_matrix")
+        if isinstance(matrix, list) and matrix:
+            for rule in matrix:
+                when = rule.get("when")
+                if when and expr.eval_expr(when, scope):
+                    return str(rule.get("action", "keep_waiting")), f"matrix:{when}"
+            default_rule = next((r for r in matrix if "default" in r), None)
+            if default_rule is not None:
+                return str(default_rule.get("default", "keep_waiting")), "matrix:default"
+        return str(cfg.get("on_sla_timeout", "keep_waiting")), "legacy"
 
     def _match_condition(self, cfg, scope) -> Optional[str]:
         for rule in cfg.get("rules") or []:
