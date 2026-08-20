@@ -254,6 +254,32 @@ class TestABTestEndpoint:
         resp = client.post("/api/sessions/nonexistent/ab-test")
         assert resp.status_code == 404
 
+    def test_variant_caps_enforced(self):
+        """审计修复：变体/评审数上限（防并行 LLM 费用 DoS）"""
+        import io
+        from PIL import Image
+
+        buf = io.BytesIO()
+        Image.new("RGB", (32, 32), (10, 20, 30)).save(buf, format="JPEG")
+        jpeg = buf.getvalue()
+        created = client.post(
+            "/api/sessions",
+            data={"platform": "taobao", "product_info": "x"},
+            headers={"X-Tenant-ID": "default"},
+            files=[("files", ("p.jpg", jpeg, "image/jpeg"))],
+        )
+        sid = created.json()["session_id"]
+
+        too_many = [{"variant_id": f"v{i}", "label": str(i)} for i in range(9)]
+        resp = client.post(f"/api/sessions/{sid}/ab-test", json={"variants": too_many})
+        assert resp.status_code == 400
+        assert "1-8" in resp.json()["detail"]
+
+        resp = client.post(f"/api/sessions/{sid}/ab-test",
+                           json={"variants": [{"variant_id": "v1"}], "review_count": 6})
+        assert resp.status_code == 400
+        assert "1-5" in resp.json()["detail"]
+
 
 class TestInterject:
     """M3 群聊插话 — REST + WS 双向"""

@@ -77,15 +77,14 @@ class TestSettingsEndpoint:
             assert a["resolved_model"]  # Mock 模式下为 mock
 
     def test_settings_api_keys_masked(self):
+        """审计修复：不返回任何密钥片段（configured 布尔即可）"""
         data = client.get("/api/settings").json()
         assert len(data["api_keys"]) >= 8
         for k in data["api_keys"]:
             assert "env" in k
             assert "configured" in k
-            assert "masked" in k
-            # 未配置时 masked 为空；配置时必须是脱敏形式（不含原始值长度）
-            if k["configured"]:
-                assert len(k["masked"]) <= 8 or "***" in k["masked"]
+            assert "masked" not in k
+            assert isinstance(k["configured"], bool)
 
     def test_settings_agents_include_params(self):
         data = client.get("/api/settings").json()
@@ -126,7 +125,8 @@ class TestApiKeyUpdate:
             data = resp.json()
             openai = next(k for k in data["api_keys"] if k["env"] == "OPENAI_API_KEY")
             assert openai["configured"] is True
-            assert openai["masked"] == "sk-t***2345"
+            # 审计修复：不再返回任何密钥片段
+            assert "masked" not in openai
             assert os.environ.get("OPENAI_API_KEY") == "sk-test-12345"
             # 已落盘
             assert load_runtime_secrets().get("OPENAI_API_KEY") == "sk-test-12345"

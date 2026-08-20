@@ -95,3 +95,24 @@ class TestAgentMemory:
         # 品类隔离：保健品的 entries 不含化妆品
         for e in health:
             assert e["category"] == "保健品"
+
+    @pytest.mark.asyncio
+    async def test_tenant_isolation(self, memory):
+        """审计修复：记忆按租户分区召回"""
+        await memory.clear()
+        await memory.remember(
+            session_id="s1", category="保健品",
+            analysis={"features": ["a"]}, prompts={"main_image": {"prompt": "x"}},
+            review={"overall_score": 85, "verdict": "pass"}, tenant_id="tenant_a",
+        )
+        await memory.remember(
+            session_id="s2", category="保健品",
+            analysis={"features": ["b"]}, prompts={"main_image": {"prompt": "y"}},
+            review={"overall_score": 80, "verdict": "pass"}, tenant_id="tenant_b",
+        )
+        ta = await memory.recall("保健品", tenant_id="tenant_a")
+        tb = await memory.recall("保健品", tenant_id="tenant_b")
+        assert len(ta) == 1 and ta[0]["session_id"] == "s1"
+        assert len(tb) == 1 and tb[0]["session_id"] == "s2"
+        # 无租户参数 → 不限制
+        assert len(await memory.recall("保健品")) == 2

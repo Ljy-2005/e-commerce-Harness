@@ -46,11 +46,13 @@ class AuditLogger:
         cost_usd: float,
         status: str,
         error: str = "",
+        tenant_id: str = "",
     ):
-        """记录一次审计条目"""
+        """记录一次审计条目（tenant_id 为租户隔离字段，审计修复）"""
         entry = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "session_id": session_id,
+            "tenant_id": tenant_id,
             "agent": agent_name,
             "provider": provider_name,
             "model": model,
@@ -77,10 +79,11 @@ class AuditLogger:
         session_id: str = "",
         agent_name: str = "",
         date: str = "",  # YYYY-MM-DD
+        tenant_id: str = "",  # 审计修复：租户过滤（空 = 不限制）
     ) -> list[dict]:
         """查询审计日志
 
-        可按 session_id / agent_name / date 筛选
+        可按 session_id / agent_name / date / tenant_id 筛选
         """
         if date:
             if not _DATE_RE.match(date):
@@ -90,9 +93,9 @@ class AuditLogger:
             files = sorted(self._dir.glob("audit-*.jsonl"), reverse=True)
 
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, self._query_sync, files, session_id, agent_name)
+        return await loop.run_in_executor(None, self._query_sync, files, session_id, agent_name, tenant_id)
 
-    def _query_sync(self, files: list[Path], session_id: str, agent_name: str) -> list[dict]:
+    def _query_sync(self, files: list[Path], session_id: str, agent_name: str, tenant_id: str) -> list[dict]:
         """同步查询（由 run_in_executor 调用）"""
         entries = []
         for path in files:
@@ -112,12 +115,14 @@ class AuditLogger:
                         continue
                     if agent_name and entry.get("agent") != agent_name:
                         continue
+                    if tenant_id and entry.get("tenant_id", "") != tenant_id:
+                        continue
                     entries.append(entry)
         return entries
 
-    async def stats(self, date: str = "") -> dict:
-        """统计汇总"""
-        entries = await self.query(date=date)
+    async def stats(self, date: str = "", tenant_id: str = "") -> dict:
+        """统计汇总（审计修复：支持租户过滤）"""
+        entries = await self.query(date=date, tenant_id=tenant_id)
         total_cost = sum(e.get("cost_usd", 0) for e in entries)
         total_tokens = sum(e.get("tokens", 0) for e in entries)
         by_agent = {}

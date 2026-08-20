@@ -32,14 +32,16 @@ class AgentMemory:
         prompts: dict,
         review: dict,
         compliance: dict | None = None,
+        tenant_id: str = "",
     ):
-        """记录一次成功的经验"""
+        """记录一次成功的经验（tenant_id 为租户隔离字段，审计修复）"""
         if review.get("overall_score", 0) < 75:
             return  # 低分不记忆
 
         key = self._category_key(category)
         entry = {
             "session_id": session_id,
+            "tenant_id": tenant_id,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "category": category,
             "features": analysis.get("features", [])[:5],
@@ -65,9 +67,11 @@ class AgentMemory:
 
     # ── 召回 ──
 
-    async def recall(self, category: str, limit: int = 5) -> list[dict]:
-        """召回某品类下历史成功的 Top-N 经验（按评分降序）"""
+    async def recall(self, category: str, limit: int = 5, tenant_id: str = "") -> list[dict]:
+        """召回某品类下历史成功的 Top-N 经验（按评分降序；tenant_id 非空时过滤，审计修复）"""
         entries = await asyncio.to_thread(self._read_entries, category)
+        if tenant_id:
+            entries = [e for e in entries if e.get("tenant_id", "") == tenant_id]
         entries.sort(key=lambda e: e.get("score", 0), reverse=True)
         return entries[:limit]
 
@@ -86,10 +90,10 @@ class AgentMemory:
         return entries
 
     async def recall_similar(
-        self, category: str, features: list[str], limit: int = 3
+        self, category: str, features: list[str], limit: int = 3, tenant_id: str = ""
     ) -> list[dict]:
-        """召回与给定特征相似的成功经验（简单的特征交集匹配）"""
-        all_entries = await self.recall(category, limit=20)
+        """召回与给定特征相似的成功经验（特征交集匹配；租户过滤，审计修复）"""
+        all_entries = await self.recall(category, limit=20, tenant_id=tenant_id)
         if not features:
             return all_entries[:limit]
 
@@ -105,11 +109,11 @@ class AgentMemory:
 
     # ── 统计 ──
 
-    async def stats(self) -> dict:
-        """记忆库统计"""
-        return await asyncio.to_thread(self._stats_sync)
+    async def stats(self, tenant_id: str = "") -> dict:
+        """记忆库统计（tenant_id 非空时仅统计该租户，审计修复）"""
+        return await asyncio.to_thread(self._stats_sync, tenant_id)
 
-    def _stats_sync(self) -> dict:
+    def _stats_sync(self, tenant_id: str = "") -> dict:
         total = 0
         by_category = defaultdict(int)
         scores = []
@@ -119,6 +123,8 @@ class AgentMemory:
                 for line in fp:
                     try:
                         e = json.loads(line.strip())
+                        if tenant_id and e.get("tenant_id", "") != tenant_id:
+                            continue
                         total += 1
                         cat = e.get("category", "unknown")
                         by_category[cat] += 1

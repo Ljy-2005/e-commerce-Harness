@@ -70,7 +70,8 @@ class ChatEngine:
         try:
             from src.harness.agent_memory import AgentMemory
             memory = AgentMemory()
-            recalled = await memory.recall(category=category_hint, limit=5) if category_hint else []
+            recalled = await memory.recall(category=category_hint, limit=5,
+                                           tenant_id=session.get("tenant_id", "")) if category_hint else []
             if recalled:
                 session["_memory_context"] = {
                     "category": category_hint,
@@ -280,6 +281,7 @@ class ChatEngine:
                         cost_usd=result.get("cost_usd", 0.0) or 0.0,
                         status="ok" if "error" not in result else "failed",
                         error=result.get("error", ""),
+                        tenant_id=session.get("tenant_id", ""),  # 审计修复：租户隔离
                     )
                 except Exception as e:
                     _engine_logger.warning("审计日志写入失败: %s", e, exc_info=True)

@@ -23,7 +23,8 @@ class PromptGeneratorAgent(BaseAgent):
             memory = AgentMemory()
             category = analysis.get("category", "")
             features = analysis.get("features", [])
-            similar = await memory.recall_similar(category, features, limit=2)
+            similar = await memory.recall_similar(category, features, limit=2,
+                                                  tenant_id=session.get("tenant_id", ""))
             if similar:
                 recalled = f"\n## 历史成功参考（仅供参考，不要照抄）\n"
                 for i, e in enumerate(similar):

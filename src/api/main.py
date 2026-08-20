@@ -70,14 +70,6 @@ _API_KEY_META = [
 _ALLOWED_SECRET_KEYS = {m["env"] for m in _API_KEY_META} | {"MOCK_MODE"}
 
 
-def _mask_key(value: str) -> str:
-    if not value:
-        return ""
-    if len(value) <= 8:
-        return "*" * len(value)
-    return f"{value[:4]}***{value[-4:]}"
-
-
 async def _read_upload_limited(f, limit: int = 20 * 1024 * 1024, name: str = "file") -> bytes:
     """分块读取上传文件，超过 limit 立即 413 中止（审计修复：防整体读入内存 DoS）"""
     chunks = []
@@ -473,19 +465,20 @@ async def delete_session(session_id: str, x_tenant_id: str = Header("default", a
 
 
 @app.get("/api/memory/stats")
-async def memory_stats():
-    """Agent 记忆库统计"""
+async def memory_stats(x_tenant_id: str = Header("default", alias="X-Tenant-ID")):
+    """Agent 记忆库统计（审计修复：按租户隔离）"""
     from src.harness.agent_memory import AgentMemory
     memory = AgentMemory()
-    return await memory.stats()
+    return await memory.stats(tenant_id=x_tenant_id)
 
 
 @app.get("/api/memory/recall")
-async def memory_recall(category: str = "", limit: int = 5):
-    """召回某品类历史成功经验"""
+async def memory_recall(category: str = "", limit: int = 5,
+                        x_tenant_id: str = Header("default", alias="X-Tenant-ID")):
+    """召回某品类历史成功经验（审计修复：按租户隔离）"""
     from src.harness.agent_memory import AgentMemory
     memory = AgentMemory()
-    entries = await memory.recall(category, limit=limit)
+    entries = await memory.recall(category, limit=limit, tenant_id=x_tenant_id)
     return {"category": category, "total": len(entries), "entries": entries}
 
 
@@ -528,11 +521,17 @@ async def run_ab_test(session_id: str, x_tenant_id: str = Header("default", alia
         ab_config = session.get("task", {}).get("ab_config", {})
     variants = ab_config.get("variants", [])
     if variants:
+        # 审计修复：变体/评审数上限，防并行 LLM 费用 DoS
+        if not 1 <= len(variants) <= 8:
+            raise HTTPException(400, f"变体数量须在 1-8 之间（当前 {len(variants)}）")
+        review_count = int(ab_config.get("review_count", 3) or 3)
+        if not 1 <= review_count <= 5:
+            raise HTTPException(400, f"review_count 须在 1-5 之间（当前 {review_count}）")
         config = ABTestConfig(
             agent_name=ab_config.get("agent_name", "提示词生成员"),
             variants=[ABVariant(**v) for v in variants],
             task_brief=ab_config.get("task_brief", "基于分析结果生成提示词"),
-            review_count=ab_config.get("review_count", 3),
+            review_count=review_count,
             scoring_method=ab_config.get("scoring_method", "multi_reviewer"),
         )
     else:
@@ -563,12 +562,13 @@ async def run_ab_test(session_id: str, x_tenant_id: str = Header("default", alia
 
 
 @app.get("/api/audit")
-async def audit_log(session_id: str = "", agent: str = "", date: str = ""):
-    """查询审计日志"""
+async def audit_log(session_id: str = "", agent: str = "", date: str = "",
+                     x_tenant_id: str = Header("default", alias="X-Tenant-ID")):
+    """查询审计日志（审计修复：按租户隔离，X-Tenant-ID 缺省 default）"""
     from src.harness.audit_logger import AuditLogger
     logger = AuditLogger()
-    entries = await logger.query(session_id=session_id, agent_name=agent, date=date)
-    stats = await logger.stats(date=date) if not session_id and not agent else {}
+    entries = await logger.query(session_id=session_id, agent_name=agent, date=date, tenant_id=x_tenant_id)
+    stats = await logger.stats(date=date, tenant_id=x_tenant_id) if not session_id and not agent else {}
     return {"total": len(entries), "entries": entries[-AUDIT_TAIL:], "stats": stats}
 
 
@@ -645,7 +645,7 @@ def _settings_payload() -> dict:
             {
                 **m,
                 "configured": bool(os.getenv(m["env"])),
-                "masked": _mask_key(os.getenv(m["env"], "")),
+                # 审计修复：不再返回任何密钥片段（此前泄漏前 4 后 4 共 8 字符）
             }
             for m in _API_KEY_META
         ],

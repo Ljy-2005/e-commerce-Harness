@@ -104,9 +104,13 @@ class TestOutputPipeline:
 
 
 class TestAuditLogger:
+    @pytest.fixture
+    def logger(self, tmp_path):
+        """审计修复：注入临时目录，不再污染真实 data/audit"""
+        return AuditLogger(log_dir=str(tmp_path / "audit"))
+
     @pytest.mark.asyncio
-    async def test_log_and_query(self):
-        logger = AuditLogger()
+    async def test_log_and_query(self, logger):
         await logger.log(
             session_id="test-123",
             agent_name="商品分析员",
@@ -123,23 +127,20 @@ class TestAuditLogger:
         assert entries[-1]["agent"] == "商品分析员"
 
     @pytest.mark.asyncio
-    async def test_stats(self):
-        logger = AuditLogger()
+    async def test_stats(self, logger):
         stats = await logger.stats()
         assert "total_calls" in stats
         assert "total_cost_usd" in stats
         assert "by_agent" in stats
 
     @pytest.mark.asyncio
-    async def test_query_by_agent(self):
-        logger = AuditLogger()
+    async def test_query_by_agent(self, logger):
         # May return 0 if no previous calls, that's fine
         entries = await logger.query(agent_name="审查员")
         assert isinstance(entries, list)
 
     @pytest.mark.asyncio
-    async def test_log_error(self):
-        logger = AuditLogger()
+    async def test_log_error(self, logger):
         await logger.log(
             session_id="test-error",
             agent_name="生图员",
@@ -155,3 +156,18 @@ class TestAuditLogger:
         entries = await logger.query(session_id="test-error")
         assert len(entries) >= 1
         assert entries[-1]["error"] == "Rate limit exceeded"
+
+    @pytest.mark.asyncio
+    async def test_tenant_isolation(self, logger):
+        """审计修复：审计条目按租户过滤"""
+        for tid in ("tenant_a", "tenant_b"):
+            await logger.log(
+                session_id=f"s-{tid}", agent_name="审查员", provider_name="mock",
+                model="mock", action="execute", duration_ms=1,
+                tokens_used=1, cost_usd=0.0, status="ok", tenant_id=tid,
+            )
+        only_a = await logger.query(tenant_id="tenant_a")
+        assert len(only_a) == 1
+        assert only_a[0]["session_id"] == "s-tenant_a"
+        # 无租户参数 → 不限制
+        assert len(await logger.query()) >= 2

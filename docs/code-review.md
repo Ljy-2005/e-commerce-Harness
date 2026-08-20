@@ -415,13 +415,25 @@
 | 限流负 tokens/超大 tokens | `acquire` 拒绝 `tokens<=0`（此前反向给桶加 token）与超大值（此前永久 while 等待）。测试：`test_acquire_rejects_invalid_tokens` |
 | 批次上限双保险 | `BatchScheduler.submit` 增加 `MAX_BATCH_ITEMS=100` 调度器级校验（与 API 端点一致） |
 
-**第三轮候选（剩余，需设计或低价值）**：`update_batch_counts` 绝对覆盖与原子递增并存（#23）、`retry_failed` 终态竞态（#24）、`require_api_key` 死代码清理（#21）、shim `__file__` 语义（#17，已文档化）、`/api/audit` 与 `/api/memory` 租户过滤（需补 tenant 字段）、鉴权矩阵测试、`_mask_key` 仅布尔、A/B 变体/评审上限、HITL 双跑防御性 CAS（可选）。
+**第三轮已修复**（隔离缺口 + 安全边界测试，2026-08-18，测试 431 全绿）：
 
-### 第二轮待办（MEDIUM ~25 / LOW ~15，未开始）
+| 项 | 修复 |
+|----|------|
+| 鉴权矩阵零覆盖 | 新增 `tests/test_api/test_auth.py` 13 例：401（无 Key/错 Key/Bearer）、200、/health 公开、暴力破解 429、WS 无 Key/错 Key → 4001、正确 Key → 4004（证明鉴权通过）、管理面非本机 403 / 本机放行 / 配 Key 后放行；`_AUTH_FAILURES` autouse 复位 |
+| `/api/audit` 跨租户泄露 | AuditLogger.log 补 `tenant_id` 字段、query/stats 支持租户过滤；引擎审计调用传会话租户；端点传 `X-Tenant-ID`。测试：`test_tenant_isolation`（顺带修复 test_io_audit 污染真实 data/audit 的问题） |
+| `/api/memory/*` 跨租户泄露 | AgentMemory remember/recall/recall_similar/stats 全链路租户参数；engine 记忆召回与 prompt_gen 相似召回透传会话租户；端点传租户。测试：`test_tenant_isolation` |
+| `_mask_key` 泄漏密钥片段 | API 只返回 `configured` 布尔，密钥片段彻底移除（前端同步 + 原函数删除）。测试：`test_settings_api_keys_masked` 改为断言无 masked 字段 |
+| A/B 变体/评审无上限 | 变体 ≤8、review_count 1-5，超限 400。测试：`test_variant_caps_enforced` |
+| `require_api_key` 死代码 | 删除（auth.md 同步） |
+| batch retry_failed 终态竞态（#24） | `requeue_requested` 标志 + run 循环重入：收尾窗口内到达的重跑指令不再丢项；无标志时保持原语义避免空转 |
 
-- **正确性**：HITL 双跑竞态（`/decision` 并发 CAS）+ `_workflow_index` 被 `reset()` 抵消；WAITING_HUMAN 下 cancel 死锁；`update_batch_counts` 绝对覆盖与 `increment_batch` 竞态；`retry_failed` 终态竞态；`_job_payload` 对非 list `product_images` TypeError；直方图把 running 项部分耗时计入
-- **可靠性**：Provider 非 200 error dict 不触发熔断（`record_success` 无条件）；限流 `acquire` 负 tokens/无界等待；`AuditLogger` 实例级锁失效（改模块级锁 + to_thread）
-- **资源**：Session TTL（`session_ttl_hours` 死配置）；`_runtimes` 字典终态清理；鉴权 IP 字典空列表 pop；SQLite 连接显式 close；checkpoint/agent_memory 同步 IO 转 `to_thread`
-- **安全**：`/api/audit`、`/api/memory/*` 租户过滤（审计条目需补 tenant 字段）；`_mask_key` 仅显示布尔；secrets.yaml `chmod 600`（POSIX）；A/B variants/review_count 上限；`hmac.compare_digest`；公开前缀精确匹配；C2 凭据绑定租户（架构级，待用户决策）
-- **测试**：鉴权矩阵（401/429/WS 4001）零覆盖；熔断器全局单例污染；Provider 探测零断言（`test_new_providers`）；CSV GBK/BOM 分支；路径穿越断言恒真（`test_main.py:210`）；WS 404 测试无法失败；cancel 断言过宽；Audit 页防抖
-- **前端/文档**：Audit 页击键请求无防抖/取消；批量创建后详情 items 为空；版本 0.2.0 vs 0.1.0 漂移；README/文档 Agent 数、模板数漂移
+**第四轮候选（剩余）**：`update_batch_counts` 绝对覆盖与原子递增并存（#23，finalize 与 increment 竞态，需统一计数入口）、熔断器全局单例测试污染、Provider 探测零断言（`test_new_providers`）、CSV GBK/BOM 分支、`/api/admin/status` 租户清单对非管理员隐藏、`hmac.compare_digest`、公开前缀精确匹配、C2 凭据绑定租户（架构级，待用户决策）、M5b 平台连接器。
+
+**第二轮待办（MEDIUM ~25 / LOW ~15）** —— 已随第二轮/第三轮完成，剩余见第四轮候选。
+
+- ~~**正确性**：HITL 双跑竞态 + `_workflow_index` 被 `reset()` 抵消；WAITING_HUMAN 下 cancel 死锁；`retry_failed` 终态竞态；`_job_payload` 非 list TypeError；直方图计 running 部分耗时~~ → ✅ 已修复（决策 19/20）
+- ~~**可靠性**：Provider 非 200 不触发熔断；限流负 tokens/无界等待；AuditLogger 实例级锁~~ → ✅ 已修复
+- ~~**资源**：Session TTL；`_runtimes` 字典终态清理；鉴权 IP 字典；SQLite 显式 close；checkpoint/agent_memory 转 to_thread~~ → ✅ 已修复
+- ~~**安全**：audit/memory 租户过滤；`_mask_key` 仅布尔；secrets 0600；A/B 上限~~ → ✅ 已修复（`hmac.compare_digest`、公开前缀精确匹配、C2 待办）
+- ~~**测试**：鉴权矩阵；WS 404 无法失败；Audit 页防抖~~ → ✅ 已修复（熔断器单例污染、Provider 探测零断言、CSV 编码分支待办）
+- ~~**前端/文档**：Audit 击键请求；批量创建详情为空；版本漂移；README/Agent 数/模板数~~ → ✅ 已修复

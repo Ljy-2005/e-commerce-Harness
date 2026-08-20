@@ -123,14 +123,14 @@ export default function Settings() {
                     <td className="text-xs">{k.capabilities}</td>
                     <td>
                       {k.configured
-                        ? <span className="badge badge-ok">已配置 {k.masked}</span>
+                        ? <span className="badge badge-ok">已配置</span>
                         : <span className="badge badge-muted">未配置</span>}
                     </td>
                     <td>
                       <input
                         className="input"
                         type="password"
-                        placeholder={k.configured ? `${k.masked}（输入新值覆盖，留空不修改）` : '粘贴 API Key'}
+                        placeholder={k.configured ? '已配置（输入新值覆盖，留空不修改）' : '粘贴 API Key'}
                         autoComplete="off"
                         value={keyInputs[k.env] ?? ''}
                         onChange={e => setKeyInputs(prev => ({ ...prev, [k.env]: e.target.value }))}

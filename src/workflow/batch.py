@@ -59,6 +59,7 @@ class _BatchRuntime:
     def __init__(self):
         self.pause_requested = False
         self.cancelled = False
+        self.requeue_requested = False   # 审计修复 #24：收尾期间 retry_failed → 再跑一轮
         self.wake_generation = 0            # 每次信号 +1（多 worker 等待用）
         self.wake_event = asyncio.Event()   # 常驻事件，不重建
         self.task: asyncio.Task | None = None
@@ -143,9 +144,14 @@ class BatchScheduler:
                 await self.store.set_batch_status(batch_id, BATCH_RUNNING)
                 runtime.cancelled = False
                 runtime.pause_requested = False
-                self._signal(runtime)
-                if not runtime.task or runtime.task.done():
+                # 审计修复 #24：run 可能已进入收尾（finalize）——requeue 标志让
+                # 当前 run 循环在收尾后重新入队；task 已结束时则直接新建任务
+                if runtime.task and not runtime.task.done():
+                    runtime.requeue_requested = True
+                    self._signal(runtime)
+                else:
                     runtime.task = asyncio.create_task(self.run(batch_id))
+                    runtime.task.add_done_callback(_make_done_callback(batch_id))
             return {"batch_id": batch_id, "action": action, "retried": count}
         raise ValueError(f"未知控制指令: {action}")
 
@@ -155,49 +161,58 @@ class BatchScheduler:
         batch = await self.store.get_batch(batch_id)
         runtime = self._runtimes.setdefault(batch_id, _BatchRuntime())
 
-        items = await self.store.get_batch_items(batch_id)
-        # 断点续跑：跳过已成功/已失败的项
-        queue: asyncio.Queue = asyncio.Queue()
-        pending = 0
-        for it in items:
-            if it["status"] in (ITEM_SUCCEEDED, ITEM_FAILED):
-                continue
-            await queue.put(it["seq"])
-            pending += 1
-        if pending == 0:
-            # 无待办（恢复场景）→ 重新汇总终态
-            await self._finalize(batch_id)
-            self._runtimes.pop(batch_id, None)  # 审计修复：终态清理
-            return await self.store.get_batch(batch_id)
+        while True:
+            items = await self.store.get_batch_items(batch_id)
+            # 断点续跑：跳过已成功/已失败的项
+            queue: asyncio.Queue = asyncio.Queue()
+            pending = 0
+            for it in items:
+                if it["status"] in (ITEM_SUCCEEDED, ITEM_FAILED):
+                    continue
+                await queue.put(it["seq"])
+                pending += 1
+            if pending == 0:
+                # 无待办（恢复场景）→ 重新汇总终态
+                await self._finalize(batch_id)
+                if runtime.requeue_requested:
+                    # 审计修复 #24：收尾期间有 retry_failed 重置 → 再跑一轮
+                    runtime.requeue_requested = False
+                    continue
+                self._runtimes.pop(batch_id, None)  # 审计修复：终态清理
+                return await self.store.get_batch(batch_id)
 
-        await self.store.set_batch_status(batch_id, BATCH_RUNNING)
-        concurrency = min(batch["max_concurrency"], pending)
+            await self.store.set_batch_status(batch_id, BATCH_RUNNING)
+            concurrency = min(batch["max_concurrency"], pending)
 
-        async def worker(wid: int):
-            while True:
-                if runtime.cancelled:
-                    return
-                if runtime.pause_requested:
-                    await self._pause(batch_id, runtime)
+            async def worker(wid: int):
+                while True:
                     if runtime.cancelled:
                         return
-                try:
-                    seq = queue.get_nowait()
-                except asyncio.QueueEmpty:
-                    return
-                await self._process_item(batch_id, batch, seq)
+                    if runtime.pause_requested:
+                        await self._pause(batch_id, runtime)
+                        if runtime.cancelled:
+                            return
+                    try:
+                        seq = queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        return
+                    await self._process_item(batch_id, batch, seq)
 
-        workers = [asyncio.create_task(worker(i)) for i in range(concurrency)]
-        await asyncio.gather(*workers, return_exceptions=True)
+            workers = [asyncio.create_task(worker(i)) for i in range(concurrency)]
+            await asyncio.gather(*workers, return_exceptions=True)
 
-        if runtime.cancelled:
-            await self.store.set_batch_status(batch_id, BATCH_CANCELLED)
+            if runtime.cancelled:
+                await self.store.set_batch_status(batch_id, BATCH_CANCELLED)
+                self._runtimes.pop(batch_id, None)  # 审计修复：终态清理
+                return await self.store.get_batch(batch_id)
+
+            await self._finalize(batch_id)
+            if runtime.requeue_requested:
+                # 审计修复 #24：收尾期间有 retry_failed 重置 → 再跑一轮
+                runtime.requeue_requested = False
+                continue
             self._runtimes.pop(batch_id, None)  # 审计修复：终态清理
             return await self.store.get_batch(batch_id)
-
-        await self._finalize(batch_id)
-        self._runtimes.pop(batch_id, None)  # 审计修复：终态清理
-        return await self.store.get_batch(batch_id)
 
     async def _process_item(self, batch_id: str, batch: dict, seq: int):
         items = await self.store.get_batch_items(batch_id)

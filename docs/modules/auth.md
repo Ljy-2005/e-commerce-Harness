@@ -31,9 +31,10 @@ dispatch(request, call_next)
 429: {"error": "Too many authentication attempts. Retry later."}
 ```
 
-### require_api_key(request)
+IP 失败字典带膨胀清扫（`_AUTH_MAX_IP_ENTRIES=10000`，审计修复）。
 
-依赖注入辅助函数：在特定端点强制鉴权（即使全局未配置 Key 也放行 —— 与中间件语义一致，仅作显式声明用）。
+管理面（`/api/settings/*` 与 `/api/admin/*`）在未配置 Key 时由 `_require_admin_access`
+限制为仅本机访问（见 `src/api/main.py`；`require_api_key` 死代码已删除）。
 
 ## 配置
 

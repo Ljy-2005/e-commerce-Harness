@@ -84,24 +84,3 @@ class AuthMiddleware(BaseHTTPMiddleware):
             status_code=401,
             content={"error": message, "hint": "Set X-API-Key header or Authorization: Bearer <key>"},
         )
-
-
-def require_api_key(request: Request):
-    """依赖注入：在特定端点强制要求鉴权（即使全局未配置 Key）"""
-    expected_key = os.getenv("ECOMM_API_KEY", "")
-    if not expected_key:
-        return  # 未配置 → 放行
-
-    api_key = request.headers.get("X-API-Key", "")
-    if not api_key:
-        auth_header = request.headers.get("Authorization", "")
-        if auth_header.startswith("Bearer "):
-            api_key = auth_header[7:]
-
-    if not api_key:
-        auth_header = request.headers.get("Authorization", "")
-        if auth_header.strip().lower().startswith("bearer "):
-            api_key = auth_header[7:].strip()
-
-    if not api_key or api_key != expected_key:
-        raise HTTPException(401, "Missing or invalid API Key")
