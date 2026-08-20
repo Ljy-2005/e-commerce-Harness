@@ -504,6 +504,7 @@ class ChatEngine:
                     prompts=artifacts.get("prompts", {}),
                     review=artifacts.get("review", {}),
                     compliance=artifacts.get("compliance"),
+                    tenant_id=session.get("tenant_id", ""),  # 审计修复：写入侧补租户（召回侧已透传）
                 )
             except Exception as e:
                 _engine_logger.warning("成功会话记忆记录失败: %s", e, exc_info=True)

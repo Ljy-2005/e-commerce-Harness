@@ -19,10 +19,12 @@ const BATCH_LABELS = {
 const ITEM_LABELS = { pending: '待执行', running: '执行中', succeeded: '成功', failed: '死信' }
 
 const DEMO_ITEMS = [
-  { product_info: '护肝片 60 粒装', platform: 'taobao', category_hint: '保健品' },
-  { product_info: '维生素C咀嚼片', platform: 'taobao', category_hint: '保健品' },
-  { product_info: '玻尿酸保湿面霜', platform: 'taobao', category_hint: '化妆品' },
-  { product_info: '无糖坚果礼盒', platform: 'jd', category_hint: '食品' },
+  // 审计修复：JSON 演示数据补 product_images 占位符（与 CSV 路径 Y3N2 一致，
+  // 否则模板必填校验使演示批次全部进入死信；真实图片请传 base64）
+  { product_info: '护肝片 60 粒装', platform: 'taobao', category_hint: '保健品', product_images: ['Y3N2'] },
+  { product_info: '维生素C咀嚼片', platform: 'taobao', category_hint: '保健品', product_images: ['Y3N2'] },
+  { product_info: '玻尿酸保湿面霜', platform: 'taobao', category_hint: '化妆品', product_images: ['Y3N2'] },
+  { product_info: '无糖坚果礼盒', platform: 'jd', category_hint: '食品', product_images: ['Y3N2'] },
 ]
 
 const CHART_COLORS = ['#3b82f6', '#22c55e', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6']

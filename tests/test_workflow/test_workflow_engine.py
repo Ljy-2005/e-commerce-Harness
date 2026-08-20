@@ -62,7 +62,7 @@ class TestHumanNode:
         await store.create_job(job)
         task = await engine.start(job)
 
-        for _ in range(200):
+        for _ in range(400):  # 40s 预算（慢机/满载防偶发，审计加固）
             await asyncio.sleep(0.1)
             job = await store.get_job(job.job_id)
             if job.status == JobStatus.WAITING_HUMAN:
@@ -84,7 +84,7 @@ class TestHumanNode:
         job = templates.instantiate("compliance_hardened", job_inputs, mode="auto")
         await store.create_job(job)
         task = await engine.start(job)
-        for _ in range(200):
+        for _ in range(400):  # 40s 预算（慢机/满载防偶发，审计加固）
             await asyncio.sleep(0.1)
             job = await store.get_job(job.job_id)
             if job.status == JobStatus.WAITING_HUMAN:
