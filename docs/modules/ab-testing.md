@@ -41,9 +41,9 @@ run(config) → ABTestResult
 - 评审阶段：审查员对每个变体评分（`review_count` 次），`avg_score > 0` 才参与送审 → 排名
 - 未注册 Agent 分支直接报错（此前为 `UnboundLocalError`，已修复）
 
-## 已知边界（progress.md §5.3 开放决策）
+## 已知边界（progress.md §5.3 开放决策 → 已解决）
 
-`model_override` 以**提示词注入**方式传递（避免共享 state 竞态），真实 Provider 下不会真正切换模型；真实模型对比需在 `BaseAgent.execute` 增加 model 参数（接口级改动），暂缓。
+`model_override` 经 `BaseAgent.execute(model_override=...)` 的 **ContextVar** 传递（2026-08-18 修复，决策 18）：变体并行执行共享同一 Agent 实例，实例属性必然竞态，ContextVar 按协程上下文隔离；`_model_kwargs()` 优先取覆盖值，**真实 Provider 下确实切换模型**。变体/评审数量上限：变体 ≤8、`review_count` 1-5（超限 400）。
 
 ## 修改指南
 
