@@ -273,27 +273,43 @@ function DetailsJson({ label, data }) {
 
 // ── 图片 ──
 
+function isPlaceholder(img) {
+  return (img.model_used || '').startsWith('mock') || (img.image_url || '').startsWith('data:image/svg+xml')
+}
+
 function ImagesTab({ images }) {
   if (!images || images.length === 0) {
     return <div className="empty-state"><p className="text-sm">暂无生成图片（生图员产出后显示）</p></div>
   }
+  const allPlaceholders = images.every(isPlaceholder)
   return (
-    <div className="image-grid">
-      {images.map((img, i) => {
-        const src = img.image_url || (img.base64_data ? `data:image/png;base64,${img.base64_data}` : '')
-        return (
-          <div key={i} className="image-cell">
-            {src ? <img src={src} alt={img.prompt_name || `生成图 ${i + 1}`} loading="lazy" /> : (
-              <div className="flex items-center justify-center" style={{ height: 160 }}><span className="text-xs">无图片数据</span></div>
-            )}
-            <div className="img-caption">
-              {img.prompt_name && <div className="strong" style={{ fontSize: 12 }}>{img.prompt_name}</div>}
-              {img.model_used && <div>模型: {img.model_used}</div>}
-              {img.processing_status && <div>状态: {img.processing_status}</div>}
+    <div>
+      {allPlaceholders && (
+        <div className="alert alert-warn">
+          ⚠ 当前展示的是<b>占位图</b>：未配置生图模型（DeepSeek 只能看图/写字，不能生成图片）。
+          在设置页配置 DALL-E / 即梦 Seedream / FLUX 任一 Key 后，生图员将生成真实商品图。
+        </div>
+      )}
+      <div className="image-grid">
+        {images.map((img, i) => {
+          const src = img.image_url || (img.base64_data ? `data:image/png;base64,${img.base64_data}` : '')
+          const placeholder = isPlaceholder(img)
+          return (
+            <div key={i} className={`image-cell ${placeholder ? 'image-cell-placeholder' : ''}`}>
+              {src ? <img src={src} alt={img.prompt_name || `生成图 ${i + 1}`} loading="lazy" /> : (
+                <div className="flex items-center justify-center" style={{ height: 160 }}><span className="text-xs">无图片数据</span></div>
+              )}
+              <div className="img-caption">
+                {img.prompt_name && <div className="strong" style={{ fontSize: 12 }}>{img.prompt_name}</div>}
+                {placeholder
+                  ? <div><span className="badge badge-warn">占位图</span></div>
+                  : img.model_used && <div>模型: {img.model_used}</div>}
+                {img.processing_status && <div>状态: {img.processing_status}</div>}
+              </div>
             </div>
-          </div>
-        )
-      })}
+          )
+        })}
+      </div>
     </div>
   )
 }

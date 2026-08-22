@@ -35,6 +35,11 @@ function msgPreview(content) {
   if (content.interjection) return `📣 用户插话: ${content.interjection}`
   if (content.agent_name) return `邀请: ${content.agent_name} — ${content.task_brief?.slice(0, 60) || ''}`
   if (content.action === 'done') return '✅ 任务完成'
+  // 生图员输出为 Mock 占位图时明确提示（未配置生图模型）
+  if (content.images && Array.isArray(content.images)
+    && content.images.every(i => (i.model_used || '').startsWith('mock') || (i.image_url || '').startsWith('data:image/svg+xml'))) {
+    return '⚠ 输出为占位图：未配置生图模型（DeepSeek 不支持生图，需 DALL-E / 即梦 / FLUX Key）'
+  }
   return JSON.stringify(content).slice(0, 120)
 }
 

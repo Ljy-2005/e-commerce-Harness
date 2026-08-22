@@ -19,7 +19,8 @@ capabilities:
   image:
     default: seedream/seedream-5.0
     alternatives:
-    - deepseek/deepseek-v4-flash-vision-exp
+    - openai/dall-e-3
+    - flux/flux.1-dev
     fallback:
     - mock
 agent_overrides:

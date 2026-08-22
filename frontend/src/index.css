@@ -312,6 +312,8 @@ body {
 .image-cell:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(2, 6, 23, .35); }
 .image-cell img { transition: transform .25s ease; }
 .image-cell:hover img { transform: scale(1.04); }
+.image-cell-placeholder { opacity: .8; border-style: dashed; }
+.image-cell-placeholder img { filter: saturate(.6); }
 
 /* 拖拽区底衬 */
 .drop-zone { background: rgba(30, 41, 59, .4); }

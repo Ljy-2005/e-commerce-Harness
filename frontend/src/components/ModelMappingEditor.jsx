@@ -21,6 +21,11 @@ export default function ModelMappingEditor({ settings, onSaved }) {
   const suggestions = Object.entries(catalog).flatMap(([p, models]) =>
     (models || []).map(m => `${p}/${m}`)
   )
+  // 按能力过滤建议：生图能力只能选生图模型（防把 DeepSeek 视觉模型误配进生图，它只理解图片、不能生成）
+  const IMAGE_MODEL_RE = /^(seedream\/|flux\/|openai\/dall-e)/
+  const imageSuggestions = suggestions.filter(s => IMAGE_MODEL_RE.test(s))
+  const llmSuggestions = suggestions.filter(s => !IMAGE_MODEL_RE.test(s))
+  const listIdFor = cap => (cap === 'image' ? 'model-suggestions-image' : 'model-suggestions-llm')
 
   useEffect(() => {
     const next = {}
@@ -91,18 +96,18 @@ export default function ModelMappingEditor({ settings, onSaved }) {
               <tr key={cap}>
                 <td className="strong">{CAP_LABELS[cap] || cap}</td>
                 <td>
-                  <input className="input mono" list="model-suggestions"
+                  <input className="input mono" list={listIdFor(cap)}
                     value={v.default}
                     onChange={e => setCaps(prev => ({ ...prev, [cap]: { ...prev[cap], default: e.target.value } }))} />
                 </td>
                 <td>
-                  <input className="input mono" list="model-suggestions"
-                    placeholder="如 anthropic/claude-sonnet-4, deepseek/deepseek-chat"
+                  <input className="input mono" list={listIdFor(cap)}
+                    placeholder="如 anthropic/claude-sonnet-4, deepseek/deepseek-v4-flash"
                     value={v.alternatives}
                     onChange={e => setCaps(prev => ({ ...prev, [cap]: { ...prev[cap], alternatives: e.target.value } }))} />
                 </td>
                 <td>
-                  <input className="input mono" list="model-suggestions"
+                  <input className="input mono" list={listIdFor(cap)}
                     value={v.fallback}
                     onChange={e => setCaps(prev => ({ ...prev, [cap]: { ...prev[cap], fallback: e.target.value } }))} />
                 </td>
@@ -131,8 +136,8 @@ export default function ModelMappingEditor({ settings, onSaved }) {
             <option value="image">image</option>
             <option value="local">local</option>
           </select>
-          <input className="input mono" style={{ flex: 3 }} list="model-suggestions"
-            placeholder="provider/model，如 deepseek/deepseek-chat"
+          <input className="input mono" style={{ flex: 3 }} list={listIdFor(row.capability)}
+            placeholder="provider/model，如 deepseek/deepseek-v4-flash"
             value={row.model}
             onChange={e => setOverrides(prev => prev.map((r, j) => j === i ? { ...r, model: e.target.value } : r))} />
           <button className="btn btn-danger btn-sm"
@@ -144,8 +149,11 @@ export default function ModelMappingEditor({ settings, onSaved }) {
         + 添加 Agent 覆盖
       </button>
 
-      <datalist id="model-suggestions">
-        {suggestions.map(s => <option key={s} value={s} />)}
+      <datalist id="model-suggestions-llm">
+        {llmSuggestions.map(s => <option key={s} value={s} />)}
+      </datalist>
+      <datalist id="model-suggestions-image">
+        {imageSuggestions.map(s => <option key={s} value={s} />)}
       </datalist>
 
       {msg && <div className={`alert ${msg.startsWith('✅') ? 'alert-success' : 'alert-error'} mt-1`}>{msg}</div>}

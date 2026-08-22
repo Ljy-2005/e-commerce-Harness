@@ -97,8 +97,8 @@ capabilities:
     alternatives: [deepseek/deepseek-v4-pro, openai/gpt-4o, anthropic/claude-sonnet-4-20250514, qwen/qwen-max]
     fallback: [mock]
   image:
-    default: openai/dall-e-3
-    alternatives: [seedream/seedream-5.0, flux/flux.1-dev]
+    default: seedream/seedream-5.0
+    alternatives: [openai/dall-e-3, flux/flux.1-dev]
     fallback: [mock]
 
 agent_overrides:
