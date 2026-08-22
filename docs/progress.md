@@ -1,6 +1,6 @@
 # E-Commerce Harness — 项目状态总览
 
-> 最后更新：2026-08-16
+> 最后更新：2026-08-22
 > 本文档汇总项目**进度**、**现有计划**、**开发思路**与**关键决策对话**，作为团队交接与后续开发的单一事实来源（Single Source of Truth）。
 
 ---
@@ -68,6 +68,7 @@
 | `2be168b` | **第四轮技术债+CI+部署**（决策 21） | reconcile_batch_counts 原子调和、熔断器测试隔离、Provider 探测真实断言重写、CSV 编码矩阵、hmac.compare_digest、公开前缀精确匹配、GitHub Actions CI、多阶段 nginx.Dockerfile；+8 测试，439 全绿 |
 | `cb03920` | **M5b 审批 SLA 矩阵**（决策 22） | engine sla_matrix（表达式规则顺序匹配→default→遗留策略，事件携带命中来源）；approval_matrix 演示模板；Dashboard 轮询失败横幅；+7 测试，446 全绿 |
 | `959e6e3` | **端到端检验修复** | 冒烟检验发现：前端 DEMO_ITEMS 缺 product_images 占位符（JSON 演示批次全死信）→ 修复；engine remember() 漏传 tenant_id（第三轮回归）→ 修复；TestHumanNode 轮询预算 20s→40s 防偶发 |
+| *（未提交）* | **前端依赖核查** | `npm outdated`/`npm audit` 全量核查（npmmirror 无 advisory 端点，改用官方 registry）：5 个漏洞清零 —— vite 5.4.21→7.3.6（修复 esbuild GHSA-67mh-4wv8-2f99 dev-server 请求走私，plugin-react 4.7 兼容无需升）、react-router-dom 6.30.6→7.18.2（6.x 线已 EOL 无修复，CVE-2025-68470 开重定向仅 v7.18+ 修复；声明式路由 API 零改动）、nanoid 3.3.17→3.3.18（postcss 传递依赖）；React 18 / recharts 2 保持（非安全项，大版本延期）；build 零告警 + dev 冒烟 + pytest 446 全绿 |
 
 ### 2.2 功能模块完成度
 
@@ -253,6 +254,7 @@ src/
 | 27 | "继续" | 第三轮收尾（决策 20）：鉴权矩阵测试（401/错 Key/200/429/WS 4001·4004/管理面 403，`test_api/test_auth.py` 13 例）；audit/memory 租户过滤（AuditLogger 补 tenant_id 字段、AgentMemory 按租户过滤、端点传租户）；`_mask_key` 布尔化（不再返回密钥片段 + 前端适配 + 删除死代码）；A/B 变体（≤8）/评审（≤5）上限；删除 `require_api_key` 死代码；batch retry_failed 终态竞态（requeue 标志 + 循环重入）；+15 测试，pytest 431 全绿 |
 | 28 | "后面还有什么计划" + "按你的建议来" | 第四轮 + 工程化配套（决策 21）：① 技术债收尾——`reconcile_batch_counts` 原子调和（只增不减，替代绝对覆盖）、熔断器全局单例测试隔离（autouse 快照/还原）、Provider 探测测试重写为真实断言（monkeypatch + 真注册表）、CSV GBK/BOM/无表头/空/不可解码矩阵、`hmac.compare_digest`（auth/webhook/双 WS）、公开前缀精确匹配（防 /healthX）；② CI 接入（GitHub Actions：pytest + ruff + 前端构建；ruff 本地因 pip 网络受限仅在 CI 运行）；③ Docker 部署口径修复（多阶段 `nginx.Dockerfile` 前端产物打进镜像 + `nginx.conf.template` envsubst + compose 改造，废除空 `frontend_dist` 卷）；+8 测试，pytest 439 全绿 |
 | 29 | "继续" | M5b 审批 SLA 业务矩阵（决策 22）：engine `sla_matrix`（表达式规则顺序匹配 → default → 遗留 on_sla_timeout，超时事件携带命中策略）；`approval_matrix` 演示模板（评分≥75 自动通过/≥60 自动拒绝/默认继续等待）；前端 Dashboard 轮询失败横幅（审计 L6）；+7 测试，pytest 446 全绿 |
+| 30 | "按 progress.md 第 5.3 节遗留的开放决策选择下一项任务继续" | 选择「前端依赖核查」（C2 租户凭据绑定需用户选方案、平台级连接器需业务决策，均非自足任务）：npm audit 5 漏洞清零 —— vite 7.3.6（esbuild 漏洞）+ react-router-dom 7.18.2（6.x EOL，CVE 仅 v7.18+ 修复）+ nanoid 3.3.18；声明式路由 API 零改动；build 零告警、dev server 冒烟、pytest 446 全绿；React 19 / recharts 3 / Vite 8 大版本升级记录为后续候选 |
 
 ### 5.2 关键决策点
 
@@ -333,8 +335,9 @@ M5a 批量报表的三个实现要点：① **数据源联表**：条目耗时/�
 - ~~**设置页敏感操作**：`/api/settings/*` 写操作在 `ECOMM_API_KEY` 未配置时开放（开发模式）~~ → ✅ 2026-08-18 修复（决策 18）：管理面增加 `_require_admin_access`——未配置 Key 时仅允许本机（127.0.0.1/::1/localhost），远程一律 403；配置 Key 后由 AuthMiddleware 全局保护
 - **Workflow M5b**：~~审批 SLA 业务矩阵~~ ✅ 2026-08-20 已交付（决策 22，approval_matrix 模板）；**剩余**：平台级连接器（淘宝/Amazon 商品库拉取与发布回传）
 - ~~MEDIUM/LOW 是否继续修~~ → ✅ 2026-08-16 已全部完成（决策 15），65/65 修复率 100%。
+- ~~**前端依赖核查**（code-review.md §六 第五轮候选的 `npm outdated`）~~ → ✅ 2026-08-22 完成：`npm audit` 5 漏洞清零（vite 7.3.6 修复 esbuild GHSA-67mh-4wv8-2f99、react-router-dom 7.18.2 修复 GHSA-wrjc-x8rr-h8h6 + GHSA-337j-9hxr-rhxg、nanoid 3.3.18 修复 GHSA-2v37-7h3g-55p8）。**React 19 / recharts 3 / Vite 8 大版本升级**列为后续候选：无安全收益、需回归成本（recharts 3 为破坏性重写）
 
-> ⚠️ **2026-08-20 快照**：四域审计 4 CRITICAL + 10 HIGH（决策 18）+ 二/三/四轮 MEDIUM/LOW 技术债（决策 19-21）+ M5b 审批矩阵（决策 22）全部完成，测试 **446 全绿**、前端 build 零告警、CI 已配置、17 笔提交工作树干净。**仅剩架构级/业务级**：C2 租户凭据绑定（待选方案：每租户独立 Key / JWT tenant claim / 维持现状）、平台级连接器、前端依赖核查。详单见 docs/code-review.md §六。
+> ⚠️ **2026-08-22 快照**：四域审计 4 CRITICAL + 10 HIGH（决策 18）+ 二/三/四轮 MEDIUM/LOW 技术债（决策 19-21）+ M5b 审批矩阵（决策 22）+ 前端依赖核查全部完成，测试 **446 全绿**、前端 build 零告警（vite 7 / react-router 7）、`npm audit` 0 漏洞、CI 已配置、17 笔提交。**仅剩架构级/业务级**：C2 租户凭据绑定（待选方案：每租户独立 Key / JWT tenant claim / 维持现状）、平台级连接器。详单见 docs/code-review.md §六。
 
 ---
 

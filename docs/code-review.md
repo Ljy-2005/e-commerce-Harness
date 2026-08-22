@@ -442,7 +442,7 @@
 | CI 接入 | `.github/workflows/ci.yml`：pytest 全量 + ruff（E/F/I/W）+ 前端 npm ci/build（Python 3.12 / Node 20）；ruff 本地因 pip 网络受限仅在 CI 运行 |
 | Docker 部署口径 | 多阶段 `deploy/nginx.Dockerfile`（node 构建 → nginx 镜像内含 dist）+ `nginx.conf.template`（envsubst 注入 `API_HOST`）+ compose 废除空 `frontend_dist` 卷 |
 
-**第五轮候选**：`/api/admin/status` 租户清单仅管理员可见（当前端点本身已受管理面保护，标注为 by-design）、C2 凭据绑定租户（架构级，待用户决策）、M5b 平台连接器 / 审批 SLA 业务矩阵、Dashboard 轮询失败横幅（前端 L6）、前端依赖 `npm outdated` 核查。
+**第五轮候选**：`/api/admin/status` 租户清单仅管理员可见（当前端点本身已受管理面保护，标注为 by-design）、C2 凭据绑定租户（架构级，待用户决策）、M5b 平台连接器 / 审批 SLA 业务矩阵、Dashboard 轮询失败横幅（前端 L6）、~~前端依赖 `npm outdated` 核查~~ → ✅ 2026-08-22 完成：`npm audit` 5 漏洞清零（vite 5.4.21→7.3.6 修复 esbuild GHSA-67mh-4wv8-2f99；react-router-dom 6.30.6→7.18.2 修复 GHSA-wrjc-x8rr-h8h6 + GHSA-337j-9hxr-rhxg——6.x 线 EOL 无修复，声明式路由 API 零改动；nanoid 3.3.17→3.3.18 修复 GHSA-2v37-7h3g-55p8，postcss 传递依赖），build 零告警 + dev 冒烟 + pytest 446 全绿；React 19 / recharts 3 / Vite 8 大版本升级列为后续候选（无安全收益）。注：本机 npmmirror 镜像不支持 `/-/npm/v1/security/*` 端点，audit 需 `--registry=https://registry.npmjs.org`。
 
 **第二轮待办（MEDIUM ~25 / LOW ~15）** —— 已随第二轮/第三轮完成，剩余见第四轮候选。
 
