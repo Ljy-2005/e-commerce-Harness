@@ -122,7 +122,7 @@ export default function Session() {
 
       <div className="grid-2" style={{ alignItems: 'start' }}>
         {/* 左：群聊直播 */}
-        <ChatPanel sessionId={id} onNewMessage={refresh} />
+        <ChatPanel sessionId={id} status={session.status} onNewMessage={refresh} />
 
         {/* 右：产出物 */}
         <div className="flex flex-col gap-2">

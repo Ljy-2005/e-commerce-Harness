@@ -177,22 +177,22 @@ export default function Dashboard() {
 
       {/* 快捷入口 */}
       <div className="grid-4 mt-2">
-        <Link to="/sessions" className="card text-center" style={{ display: 'block' }}>
+        <Link to="/sessions" className="card lift text-center" style={{ display: 'block' }}>
           <div className="text-lg">💬</div>
           <div className="strong mt-1">新建任务</div>
           <div className="text-xs mt-1">上传商品图，启动 Agent 群聊</div>
         </Link>
-        <Link to="/agents" className="card text-center" style={{ display: 'block' }}>
+        <Link to="/agents" className="card lift text-center" style={{ display: 'block' }}>
           <div className="text-lg">🤖</div>
           <div className="strong mt-1">Agent 配置</div>
           <div className="text-xs mt-1">调整各 Agent 的分析参数</div>
         </Link>
-        <Link to="/settings" className="card text-center" style={{ display: 'block' }}>
+        <Link to="/settings" className="card lift text-center" style={{ display: 'block' }}>
           <div className="text-lg">⚙️</div>
           <div className="strong mt-1">API Key</div>
           <div className="text-xs mt-1">配置真实模型服务的密钥</div>
         </Link>
-        <Link to="/audit" className="card text-center" style={{ display: 'block' }}>
+        <Link to="/audit" className="card lift text-center" style={{ display: 'block' }}>
           <div className="text-lg">📜</div>
           <div className="strong mt-1">审计日志</div>
           <div className="text-xs mt-1">每次 Agent 调用的成本与耗时</div>

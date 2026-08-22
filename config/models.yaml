@@ -1,25 +1,27 @@
-# 能力 → 模型映射
-# Agent 代码中不出现模型名，运行时根据此文件解析
-#
-# DeepSeek V4 代（2026-08 起）：deepseek-v4-flash（文本默认）/ deepseek-v4-pro（更强）/
-# deepseek-v4-flash-vision-exp（多模态视觉）。deepseek-chat / deepseek-reasoner 为 V3 旧别名，已弃用。
-# 未配置对应 Provider 的 API Key 时，resolve() 自动降级到可用备选 → fallback → mock。
-
 capabilities:
   vision:
-    default: openai/gpt-4o
-    alternatives: [deepseek/deepseek-v4-flash-vision-exp, anthropic/claude-sonnet-4-20250514, qwen/qwen-vl-max]
-    fallback: [mock]
+    default: deepseek/deepseek-v4-flash-vision-exp
+    alternatives:
+    - deepseek/deepseek-v4-flash-vision-exp
+    - anthropic/claude-sonnet-4-20250514
+    - qwen/qwen-vl-max
+    fallback:
+    - mock
   text:
     default: deepseek/deepseek-v4-flash
-    alternatives: [deepseek/deepseek-v4-pro, openai/gpt-4o, anthropic/claude-sonnet-4-20250514, qwen/qwen-max]
-    fallback: [mock]
+    alternatives:
+    - deepseek/deepseek-v4-pro
+    - openai/gpt-4o
+    - anthropic/claude-sonnet-4-20250514
+    - qwen/qwen-max
+    fallback:
+    - mock
   image:
-    default: openai/dall-e-3
-    alternatives: [seedream/seedream-5.0, flux/flux.1-dev]
-    fallback: [mock]
-
-# 按 Agent 覆盖（可选，不配置则用 capabilities 默认值）
+    default: seedream/seedream-5.0
+    alternatives:
+    - deepseek/deepseek-v4-flash-vision-exp
+    fallback:
+    - mock
 agent_overrides:
   提示词生成员:
     text: deepseek/deepseek-v4-flash

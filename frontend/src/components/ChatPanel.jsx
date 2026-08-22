@@ -45,12 +45,15 @@ const FILTERS = [
   { key: 'system', label: '系统' },
 ]
 
-export default function ChatPanel({ sessionId, onNewMessage }) {
+export default function ChatPanel({ sessionId, onNewMessage, status }) {
   const { messages, connected, error, send } = useWebSocket(sessionId)
   const bottomRef = useRef(null)
   const [filter, setFilter] = useState('all')
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
+
+  // 会话处于运行态且已有消息 → 显示「正在输入」（Agent 正在思考/生成）
+  const typing = status === 'running' && messages.length > 0
 
   // M3 群聊插话：WS 发送指令（失败回退 REST）
   async function handleInterject() {
@@ -144,24 +147,42 @@ export default function ChatPanel({ sessionId, onNewMessage }) {
             {g.items.map(msg => <ChatMessage key={msg.id} msg={msg} />)}
           </div>
         ))}
+        {typing && <TypingIndicator />}
         <div ref={bottomRef} />
       </div>
 
       {/* M3 群聊插话：指挥正在运行的群聊 */}
-      <div className="flex gap-1 mt-1">
+      <div className="chat-composer">
         <input
-          className="input"
-          style={{ flex: 1 }}
+          className="chat-input"
           placeholder="插话指挥群聊，如：换个更简约的风格 / 加上送礼场景"
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') handleInterject() }}
         />
-        <button className="btn btn-primary btn-sm" onClick={handleInterject} disabled={sending || !input.trim()}>
-          {sending ? '发送中...' : '📣 插话'}
+        <button
+          className="chat-send"
+          onClick={handleInterject}
+          disabled={sending || !input.trim()}
+          title="发送插话"
+          aria-label="发送插话"
+        >
+          📨
         </button>
       </div>
       <p className="text-xs mt-1 text-muted">插话会进入群聊消息流，Coordinator 下一轮决策将参考你的指令（真实 LLM 模式生效）。</p>
+    </div>
+  )
+}
+
+function TypingIndicator() {
+  return (
+    <div className="chat-row typing-row">
+      <span className="chat-avatar" aria-hidden>⚡</span>
+      <div className="chat-bubble typing-bubble" role="status" aria-label="Agent 正在输入">
+        <span className="typing-dots"><i /><i /><i /></span>
+        <span className="typing-text">正在输入…</span>
+      </div>
     </div>
   )
 }
@@ -173,20 +194,23 @@ function ChatMessage({ msg }) {
   const full = JSON.stringify(content, null, 2)
 
   return (
-    <div className={`chat-msg ${msg.role}`}>
-      <div className="msg-head">
-        <span className="sender">{senderIcon(msg.sender)} {msg.sender}</span>
-        {msg.action === 'invite' && <span className="badge badge-info">邀请</span>}
-        {msg.action === 'done' && <span className="badge badge-ok">完成</span>}
-        {msg.action === 'error' && <span className="badge badge-err">错误</span>}
-        <span className="turn-tag">{msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString() : ''}</span>
+    <div className={`chat-row ${msg.role}`}>
+      <span className="chat-avatar" aria-hidden>{senderIcon(msg.sender)}</span>
+      <div className="chat-bubble">
+        <div className="chat-bubble-head">
+          <span className="sender">{msg.sender}</span>
+          {msg.action === 'invite' && <span className="badge badge-info">邀请</span>}
+          {msg.action === 'done' && <span className="badge badge-ok">完成</span>}
+          {msg.action === 'error' && <span className="badge badge-err">错误</span>}
+          <span className="turn-tag">{msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString() : ''}</span>
+        </div>
+        <div className={`pre ${expanded ? '' : 'dim'}`}>
+          {expanded ? full : preview}
+        </div>
+        <button className="expand-btn" onClick={() => setExpanded(!expanded)}>
+          {expanded ? '▲ 收起' : '▼ 展开完整内容'}
+        </button>
       </div>
-      <div className={`pre ${expanded ? '' : 'dim'}`}>
-        {expanded ? full : preview}
-      </div>
-      <button className="expand-btn" onClick={() => setExpanded(!expanded)}>
-        {expanded ? '▲ 收起' : '▼ 展开完整内容'}
-      </button>
     </div>
   )
 }

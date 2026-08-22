@@ -10,12 +10,12 @@ const NODE_ICONS = {
 }
 
 const STEP_STYLE = {
-  pending: { bg: '#1e293b', border: '#334155', label: '待执行', dot: '#64748b' },
-  running: { bg: '#1e3a5f', border: '#3b82f6', label: '运行中', dot: '#3b82f6' },
-  succeeded: { bg: '#16351f', border: '#22c55e', label: '成功', dot: '#22c55e' },
-  failed: { bg: '#3f1d1d', border: '#ef4444', label: '失败', dot: '#ef4444' },
-  skipped: { bg: '#1e293b', border: '#475569', label: '已跳过', dot: '#64748b' },
-  waiting_human: { bg: '#3f2f1d', border: '#f59e0b', label: '待人工', dot: '#f59e0b' },
+  pending: { bg: 'rgba(30, 41, 59, .4)', border: '#334155', label: '待执行', dot: '#64748b' },
+  running: { bg: 'rgba(30, 58, 95, .45)', border: '#3b82f6', label: '运行中', dot: '#3b82f6' },
+  succeeded: { bg: 'rgba(22, 51, 31, .45)', border: '#22c55e', label: '成功', dot: '#22c55e' },
+  failed: { bg: 'rgba(63, 29, 29, .45)', border: '#ef4444', label: '失败', dot: '#ef4444' },
+  skipped: { bg: 'rgba(30, 41, 59, .4)', border: '#475569', label: '已跳过', dot: '#64748b' },
+  waiting_human: { bg: 'rgba(63, 47, 29, .45)', border: '#f59e0b', label: '待人工', dot: '#f59e0b' },
 }
 
 const JOB_BADGES = {
@@ -188,7 +188,7 @@ export default function WorkflowJob() {
               return (
                 <div key={s.step_id} className="node-wrap">
                   <button
-                    className={`node-card ${isSelected ? 'selected' : ''}`}
+                    className={`node-card ${isSelected ? 'selected' : ''} step-${s.status}`}
                     style={{ background: style.bg, borderColor: isSelected ? '#93c5fd' : style.border }}
                     onClick={() => setSelected(isSelected ? null : s.node)}
                   >
