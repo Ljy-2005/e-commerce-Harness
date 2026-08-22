@@ -41,7 +41,7 @@
 
 ### 2.1 里程碑时间线
 
-按 git 提交顺序（7 次提交）：
+按 git 提交顺序（当前 **17 笔提交**，工作树干净）：
 
 | 提交 | 阶段 | 交付内容 |
 |------|------|---------|
@@ -63,6 +63,11 @@
 | *（未提交）* | **工程化收尾·分层+拆包** | PRD D4 对齐：`auth.py` 迁至 `src/api/auth.py`（core 不再依赖 FastAPI），`main.py` 迁至 `src/api/main.py`，根目录保留 `sys.modules` 别名 shim（`uvicorn src.main:app` 与测试模块属性突变兼容）；deploy/README/文档引用全部更新。前端拆包：10 页面 `React.lazy` + `manualChunks`（charts 313KB / react-vendor 165KB / vendor 40KB），入口 603KB → 6KB，build 零告警 |
 | *（未提交）* | **Workflow M5a 批量报表页** | `JobStore.get_batch_report`（总览/模板成功率/耗时直方图/失败原因 Top-5 归一化，租户隔离）+ `GET /api/workflows/batches/report`（路由置于 `/{batch_id}` 之前防吞）+ 前端批量页「📈 数据报表」标签（recharts 成功率/耗时分布图 + 失败原因条形 + 状态分布）；6 个新测试 |
 | *（未提交）* | **四域审计·第一轮修复（4 CRITICAL + 10 HIGH）** | 安全/后端/测试/前端四域审计（决策 18）：① 模板路径穿越修复（`load_template`/export/import 白名单校验，Windows `%5C` 穿越实测复现后封堵）；② 租户隔离（未知租户 403 + 工作流控制/决策/复刻/批次控制/双 WS 全量租户校验）；③ 管理面保护（dev 仅本机）+ 前端 API Key 接线（X-API-Key 头 + WS ?api_key= + 设置页输入）；④ retry_step cancel→start 竞态（await 旧任务后重建）；⑤ A/B model_override 真生效（ContextVar）；⑥ webhook SSRF 防护；⑦ 上传流式限额（413）+ 批次上限 MAX_BATCH_ITEMS=100；⑧ WS 回放进 try/finally；⑨ 测试数据安全（tmp 隔离 + secrets 快照还原）；⑩ 前端路由状态重置 + WS 断线重连。新增 31 个测试，pytest 407 全绿 |
+| `6d00da1` | **第二轮 MEDIUM 修复**（决策 19） | HITL retry start_index（reset 后生效；双跑竞态核实为误报）、Session TTL 惰性驱逐 + 配额只计活跃态、checkpoint/agent_memory 转 to_thread、AuditLogger 模块级锁、_runtimes 终态清理、批量 done_callback、SQLite 显式 close、限流参数防护；+6 测试，416 全绿 |
+| `99fdb14` | **第三轮租户隔离+鉴权矩阵**（决策 20） | audit/memory 租户过滤（tenant_id 字段全链路）、鉴权矩阵 13 例（401/429/WS 4001·4004/管理面 403）、_mask_key 布尔化、A/B 变体/评审上限、require_api_key 死代码删除、batch requeue 竞态修复；+15 测试，431 全绿 |
+| `2be168b` | **第四轮技术债+CI+部署**（决策 21） | reconcile_batch_counts 原子调和、熔断器测试隔离、Provider 探测真实断言重写、CSV 编码矩阵、hmac.compare_digest、公开前缀精确匹配、GitHub Actions CI、多阶段 nginx.Dockerfile；+8 测试，439 全绿 |
+| `cb03920` | **M5b 审批 SLA 矩阵**（决策 22） | engine sla_matrix（表达式规则顺序匹配→default→遗留策略，事件携带命中来源）；approval_matrix 演示模板；Dashboard 轮询失败横幅；+7 测试，446 全绿 |
+| `959e6e3` | **端到端检验修复** | 冒烟检验发现：前端 DEMO_ITEMS 缺 product_images 占位符（JSON 演示批次全死信）→ 修复；engine remember() 漏传 tenant_id（第三轮回归）→ 修复；TestHumanNode 轮询预算 20s→40s 防偶发 |
 
 ### 2.2 功能模块完成度
 
@@ -80,7 +85,7 @@
 | 结构化日志 | ✅ 完成 | `get_logger()` + UTC 时间戳 + JSON adapter |
 | REST API | ✅ 完成 | 会话 CRUD + 列表 + 决策 + 插话 + 消息 + 记忆 + 审计 + A/B 测试 + 设置（API Key / Agent / 模型映射持久化）+ 工作流（模板/作业/控制/决策/复刻/批量/**导入导出**/**Webhook 回调**） |
 | WebSocket | ✅ 完成 | 实时群聊流（双向插话）+ 工作流事件流（已补鉴权） |
-| Workflow 编排层 | ✅ M1-M5a | `src/workflow/`：YAML 模板 DSL（6 类节点+group_chat）、极简表达式、SQLite+事件溯源、状态机（自动/手动挡、断点续跑、回跳重试、人工审批+SLA 自动决策）、6 个内置模板；批量调度器；一键风格复刻；webhook 出站/入站连接器；模板导入导出；**批量报表（M5a）** |
+| Workflow 编排层 | ✅ M1-M5b | `src/workflow/`：YAML 模板 DSL（6 类节点+group_chat）、极简表达式、SQLite+事件溯源、状态机（自动/手动挡、断点续跑、回跳重试、人工审批+SLA 自动决策+**业务矩阵**）、**7 个模板**；批量调度器；一键风格复刻；webhook 出站/入站连接器；模板导入导出；批量报表（M5a）；审批 SLA 矩阵（M5b） |
 | React 前端 | ✅ 完成 | 侧边栏 9 页工作台：仪表盘 / 会话（群聊插话）/ 工作流（画廊+画布+一键复刻）/ 批量任务（列表+**数据报表**）/ Agent 配置 / 设置 / 审计 / 记忆 |
 | CLI | ✅ 完成 | `python -m src.cli run` |
 | Docker 部署 | ✅ 完成 | 多阶段构建（Node 前端 + Python 后端 + Nginx）+ 非 root 用户 + HEALTHCHECK |
@@ -101,7 +106,7 @@
 
 ### 2.4 测试覆盖
 
-- **41 个测试文件**，**439 个测试通过**（`pytest` 全量 Mock Mode，无自有 RuntimeWarning）
+- **41 个测试文件**，**446 个测试通过**（`pytest` 全量 Mock Mode，无自有 RuntimeWarning）
 - 时序加固：批量死信重跑测试改为 spy 断言（不再依赖轮询瞬时状态），全量运行多次无偶发失败
 - M5a 批量报表：聚合逻辑 3 测试（总览/模板/直方图/失败原因/租户隔离）+ 端点 3 测试（含路由防吞回归）
 - 四域审计第一轮（决策 18）：+34 测试（路径穿越 10 参数、租户 403/404、retry_step 重启、model_override 传播、SSRF 8 组、上传 413、批次上限、报表幽灵条目、熔断计 error dict、cancel 唤醒等）
@@ -109,6 +114,7 @@
 - 第三轮（决策 20）：+15 测试（鉴权矩阵 13 例：401/错 Key/200/429/WS 4001 与 4004/管理面 403；audit 租户过滤、memory 租户过滤、A/B 变体/评审上限）
 - 第四轮（决策 21）：+8 测试（CSV GBK/BOM/无表头/空/不可解码矩阵 6 例、Provider 探测重写为真实断言 +2 净增）
 - M5b（决策 22）：+7 测试（sla_matrix 单元 5 例：顺序匹配/default/遗留/缺失值安全 + approval_matrix 端到端 2 例：评分驱动 auto_approve、矩阵 default auto_reject）
+- E2E 检验（959e6e3）：启动真实服务冒烟——会话 8 轮群聊 / 工作流 8 步 / 审批矩阵自动决策 / 批量 2/2 / 报表 / 记忆 / 审计 / 设置全部通过；修复演示数据与记忆租户透传 2 个缺陷
 - 覆盖范围：
   - `test_api/` — FastAPI 端点测试（含设置/会话列表/密钥持久化/模型映射/群聊插话 21 个新测试）
   - `test_agents/` — 9 个 Agent 单测（含风格拆解员插件化注册）
@@ -325,10 +331,10 @@ M5a 批量报表的三个实现要点：① **数据源联表**：条目耗时/�
 - ~~**`ABTestRunner` 的 model_override 语义**：提示词注入不切换真实模型~~ → ✅ 2026-08-18 修复（决策 18）：`BaseAgent.execute(model_override=...)` 经 ContextVar 传递，`_model_kwargs()` 优先取覆盖值，并发变体互不干扰；删除提示词注入与死代码恢复
 - ~~**前端构建产物体积**：单 chunk 603KB（recharts 占大头），可用 `manualChunks`/动态 import 拆包优化~~ → ✅ 2026-08-16 完成：10 个页面 `React.lazy` 按路由拆包（每页 3.8-21KB）+ `manualChunks` 分离 `charts`（recharts+d3，仅图表页按需加载）/ `react-vendor`（165KB）/ `vendor`（40KB）；入口 chunk 603KB → 6KB，build 零告警
 - ~~**设置页敏感操作**：`/api/settings/*` 写操作在 `ECOMM_API_KEY` 未配置时开放（开发模式）~~ → ✅ 2026-08-18 修复（决策 18）：管理面增加 `_require_admin_access`——未配置 Key 时仅允许本机（127.0.0.1/::1/localhost），远程一律 403；配置 Key 后由 AuthMiddleware 全局保护
-- **Workflow M5b（剩余）**：平台级连接器（淘宝/Amazon 商品库拉取与发布回传）、审批 SLA 的自动决策需结合业务审批矩阵细化（M5a 批量报表页已于 2026-08-16 交付）
+- **Workflow M5b**：~~审批 SLA 业务矩阵~~ ✅ 2026-08-20 已交付（决策 22，approval_matrix 模板）；**剩余**：平台级连接器（淘宝/Amazon 商品库拉取与发布回传）
 - ~~MEDIUM/LOW 是否继续修~~ → ✅ 2026-08-16 已全部完成（决策 15），65/65 修复率 100%。
 
-> ⚠️ **2026-08-18 审计修复（决策 18）**：四域审计（安全/后端/测试/前端）共发现 4 CRITICAL + 10 HIGH 已全部修复（见 §2.1 里程碑表与 docs/code-review.md §六）；**剩余 MEDIUM ~25 条 / LOW ~15 条**（会话 TTL、AuditLogger 锁、熔断不计 5xx、HITL 双跑竞态、_runtimes 泄漏、审计/记忆租户过滤、鉴权矩阵测试等）待第二轮，清单见 docs/code-review.md §六。
+> ⚠️ **2026-08-20 快照**：四域审计 4 CRITICAL + 10 HIGH（决策 18）+ 二/三/四轮 MEDIUM/LOW 技术债（决策 19-21）+ M5b 审批矩阵（决策 22）全部完成，测试 **446 全绿**、前端 build 零告警、CI 已配置、17 笔提交工作树干净。**仅剩架构级/业务级**：C2 租户凭据绑定（待选方案：每租户独立 Key / JWT tenant claim / 维持现状）、平台级连接器、前端依赖核查。详单见 docs/code-review.md §六。
 
 ---
 
@@ -357,5 +363,5 @@ docker-compose -f deploy/docker-compose.yml up -d
 | 产品需求文档 | `docs/prd.md` | 完整 PRD（问题、方案、决策 D1-D8、数据模型、API 契约） |
 | 代码审查报告 | `docs/code-review.md` | 65 个审计问题的完整清单与修复优先级（§五：全部复查通过） |
 | 模块文档 | `docs/modules/*.md` | 16 篇：核心 8 篇 + workflow/auth/tenant/logging/storage/harness-extended/ab-testing/image-preprocessor，覆盖全部源文件 |
-| **Workflow 设计** | `docs/workflow-design.md` | 编排层设计（模板 DSL / 状态机 / 批量 / 画布），借鉴 OiiOii 范式，M1-M4 已实施 |
+| **Workflow 设计** | `docs/workflow-design.md` | 编排层设计（模板 DSL / 状态机 / 批量 / 画布），借鉴 OiiOii 范式，M1-M5b 已实施 |
 | 本状态总览 | `docs/progress.md` | 进度 / 计划 / 思路 / 决策（本文档） |
