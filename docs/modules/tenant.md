@@ -8,8 +8,9 @@
 
 - **ContextVar 协程安全** — 租户上下文随请求生命周期流转，不跨协程泄漏
 - **配额体系** — rpm / tpm / 月度预算 / 并发会话数 / 存储上限
-- **默认租户兜底** — 未知租户 ID 回退到 `default` 租户（不拒绝请求）
+- **未知租户拒绝** — 未知租户 ID 返回 403（审计修复：此前静默回退 `default` 使多租户隔离失效）
 - **环境变量扩展** — `ECOMM_TENANTS` 逗号分隔声明额外租户
+- **租户身份绑定（C2）** — 持租户 Key（`ECOMM_TENANT_KEYS` / `config/tenant_keys.yaml`）的请求，`X-Tenant-ID` 声明被 AuthMiddleware 重写为该 Key 绑定的租户（密钥即身份，防冒充；见 `docs/modules/auth.md`）
 
 ## 关键类
 
@@ -29,7 +30,7 @@ rpm=60, tpm=100_000, budget_usd=10.0, max_sessions=50, storage_mb=500
 ### TenantRegistry
 
 ```
-get(tenant_id) → TenantContext     # 未知租户返回 default
+get(tenant_id) → TenantContext | None  # 未知租户返回 None（调用方应 403，勿静默回退）
 list_ids() / all_quotas()
 ```
 
@@ -60,6 +61,7 @@ get_current_tenant() / set_current_tenant(ctx)
 - `POST /api/sessions`：校验租户会话数 + 预算（超限 429）
 - 会话/工作流 job/batch：`tenant_id` 字段隔离查询
 - 限流器：`set_tenant_limit()` 按租户注入独立配额
+- 租户 Key：`AuthMiddleware` 绑定租户身份（重写 `X-Tenant-ID`），`POST /api/settings/tenant-keys` 分发/轮换/删除（仅 admin）
 
 ## 修改指南
 

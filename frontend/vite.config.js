@@ -5,6 +5,10 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
+    watch: {
+      // Windows 下编辑工具的 `.xxx.tmpdir` 临时目录会触发 chokidar EBUSY 崩溃（dev server 退出）
+      ignored: ['**/.*.tmpdir/**'],
+    },
     proxy: {
       '/api': 'http://localhost:8000',
       '/ws': { target: 'ws://localhost:8000', ws: true },

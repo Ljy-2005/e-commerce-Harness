@@ -128,6 +128,43 @@ def apply_runtime_secrets_to_env() -> int:
     return applied
 
 
+# ── 租户独立 API Key 持久化（C2 方案①：每租户一把钥匙） ──
+
+TENANT_KEYS_REL = "config/tenant_keys.yaml"
+
+
+def tenant_keys_path() -> Path:
+    """租户 Key 文件路径（tenant_id → key，与 secrets.yaml 同目录，已 gitignore）"""
+    return _project_root() / TENANT_KEYS_REL
+
+
+def load_tenant_keys_file() -> dict[str, str]:
+    """读取持久化的租户 Key（缺失文件返回空字典）"""
+    data = load_yaml(TENANT_KEYS_REL)
+    if not isinstance(data, dict):
+        return {}
+    return {str(k): str(v) for k, v in data.items() if v}
+
+
+def save_tenant_keys_file(keys: dict[str, str]) -> None:
+    """写入租户 Key 文件（空值表示删除该租户的 Key），POSIX 下 0600"""
+    path = tenant_keys_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    merged = load_tenant_keys_file()
+    for k, v in keys.items():
+        if v:
+            merged[k] = v
+        else:
+            merged.pop(k, None)
+    with open(path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(merged, f, allow_unicode=True, sort_keys=False)
+    # 审计修复：密钥文件收紧权限（POSIX 0644 → 0600，防本机其他用户读取）
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass  # Windows 无 POSIX 权限语义，忽略
+
+
 # 模块导入时自动应用（Provider 检测依赖 os.environ）
 apply_runtime_secrets_to_env()
 

@@ -80,7 +80,9 @@ dev: pytest, pytest-asyncio, pytest-cov, openai, ruff
 | `ECOMM_MOCK_MODE` | 强制 Mock（true/false），缺省按 API Key 自动检测 |
 | `ECOMM_LOG_LEVEL` | 日志级别（默认 INFO） |
 | `ECOMM_CORS_ORIGINS` | CORS 白名单（默认回退 `config/default.yaml` 的 `app.cors_origins`） |
-| `ECOMM_API_KEY` | 配置后启用全局 API 鉴权（不配置则开发模式全开放） |
+| `ECOMM_API_KEY` | 全局管理 Key，配置后启用 API 鉴权（不配置则开发模式全开放） |
+| `ECOMM_TENANT_KEYS` | 租户独立 Key 引导（`tenant1:key1,tenant2:key2`），配置后持租户 Key 的请求身份绑定该租户；也可经设置页管理（`config/tenant_keys.yaml`） |
+| `ECOMM_TENANTS` | 租户注册（`tenant1:pro,tenant2:free`），未配置则只有 default 租户 |
 | `ECOMM_WEBHOOK_TOKEN` | 工作流入站回调鉴权（未配置回调端点 503 停用） |
 
 ## 开发流程

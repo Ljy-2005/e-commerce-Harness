@@ -114,6 +114,18 @@ class TestAdminGuard:
             main_mod._require_admin_access(self._fake_request(host))  # 不抛异常
 
     def test_remote_allowed_with_key(self, monkeypatch):
-        """配置 Key 后由 AuthMiddleware 全局保护，管理面守卫放行"""
+        """配置 Key 后由 AuthMiddleware 全局保护：admin 角色（state.auth_role）放行"""
         monkeypatch.setenv("ECOMM_API_KEY", "secret-123")
-        main_mod._require_admin_access(self._fake_request("8.8.8.8"))  # 不抛异常
+        req = self._fake_request("8.8.8.8")
+        req.state.auth_role = "admin"  # 中间件已验明全局 Key → admin 身份
+        main_mod._require_admin_access(req)  # 不抛异常
+
+    def test_remote_blocked_with_tenant_role(self, monkeypatch):
+        """租户 Key 通过中间件后仍被管理面拒绝（C2：租户无权改系统配置）"""
+        monkeypatch.setenv("ECOMM_API_KEY", "secret-123")
+        req = self._fake_request("8.8.8.8")
+        req.state.auth_role = "tenant"
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException) as exc:
+            main_mod._require_admin_access(req)
+        assert exc.value.status_code == 403

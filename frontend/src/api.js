@@ -114,6 +114,14 @@ export async function saveApiKeys(apiKeys) {
   })
 }
 
+export async function saveTenantKey(tenantId, apiKey) {
+  return request('/settings/tenant-keys', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tenant_id: tenantId, api_key: apiKey }),
+  })
+}
+
 export async function saveAgentParams(name, defaults) {
   return request(`/settings/agents/${encodeURIComponent(name)}`, {
     method: 'POST',

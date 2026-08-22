@@ -16,3 +16,4 @@ config/secrets.yaml
 
 # Office ÁÙÊ±ËøÎÄ¼ş
 ~$*
+config/tenant_keys.yaml

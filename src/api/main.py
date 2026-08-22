@@ -17,7 +17,7 @@ from fastapi.responses import PlainTextResponse
 from src.core.state import SessionState
 from src.core.config import is_mock_mode, load_models_config, list_agent_configs, load_agent_config, _project_root, get_cors_origins
 from src.core.tenant import TenantContext, get_tenant_registry, set_current_tenant
-from src.api.auth import AuthMiddleware
+from src.api.auth import AuthMiddleware, authenticate_api_key, auth_enabled, env_tenant_keys, get_tenant_keys, reload_tenant_keys
 from src.core.logging_config import get_logger
 from src.providers import get_provider_registry
 from src.agents.registry import get_agent_registry, AgentRegistry
@@ -44,6 +44,8 @@ EVENT_TAIL = 200                # 作业事件流返回条数上限
 JOB_LIST_LIMIT = 100            # 作业/批次列表分页上限
 MAX_BATCH_ITEMS = 100           # 单批次商品项上限（防无界 job/费用 DoS）
 UPLOAD_READ_CHUNK = 1024 * 1024  # 上传分块读取大小（1MB）
+TENANT_KEY_MIN_LEN = 16          # 租户 Key 最短长度（C2：每租户独立 Key）
+TENANT_KEY_MAX_LEN = 256         # 租户 Key 最长长度
 
 # ── 全局组件 ──
 _provider_registry = get_provider_registry()
@@ -129,7 +131,7 @@ async def lifespan(app: FastAPI):
     mock_mode = is_mock_mode()
     logger.info("Agent 注册完成", extra={"count": len(names), "names": ", ".join(names)})
     logger.info("运行模式", extra={"mock_mode": mock_mode, "tenants": len(get_tenant_registry().list_ids())})
-    logger.info("API Key 鉴权", extra={"enabled": bool(os.getenv("ECOMM_API_KEY"))})
+    logger.info("API Key 鉴权", extra={"enabled": auth_enabled(), "tenant_keys": len(get_tenant_keys())})
 
     # P3: 启动时恢复未完成的 checkpoint
     try:
@@ -187,13 +189,20 @@ _LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
 
 
 def _require_admin_access(request: Request):
-    """管理面保护（审计修复）：未配置 ECOMM_API_KEY（开发模式）时仅允许本机访问。
+    """管理面保护（审计修复 + C2 方案①）：仅全局 admin Key 或（开发模式下）本机可访问。
 
-    已配置 Key 时由 AuthMiddleware 全局保护；开发模式下远程调用管理端点一律 403，
-    杜绝未授权者改写 API Key / 模型映射 / Agent 参数。
+    - AuthMiddleware 已把身份写入 request.state.auth_role：
+      "admin"（全局 ECOMM_API_KEY）→ 放行
+      "tenant"（租户 Key）→ 一律 403（租户不得改系统配置/租户 Key）
+    - 未配置任何 Key（开发模式）→ 仅允许本机（127.0.0.1/::1/localhost/testclient）
     """
-    if os.getenv("ECOMM_API_KEY"):
+    role = getattr(request.state, "auth_role", "")
+    if role == "admin":
         return
+    if role == "tenant":
+        raise HTTPException(403, "租户 Key 无权访问管理端点（需全局 ECOMM_API_KEY）")
+    if os.getenv("ECOMM_API_KEY"):
+        raise HTTPException(403, "需要管理员 API Key")
     if request.client and request.client.host in _LOCAL_HOSTS:
         return
     raise HTTPException(403, "开发模式管理面仅允许本机访问（请配置 ECOMM_API_KEY 后远程管理）")
@@ -612,8 +621,25 @@ _MODEL_CATALOG = {
 }
 
 
+def _tenant_keys_payload() -> list[dict]:
+    """租户 Key 状态列表（仅 configured 布尔 + 来源，绝不返回密钥内容）"""
+    keys = get_tenant_keys()
+    env_keys = env_tenant_keys()
+    out = []
+    for tid in get_tenant_registry().list_ids():
+        ctx = get_tenant_registry().get(tid)
+        out.append({
+            "tenant_id": tid,
+            "name": ctx.name if ctx else tid,
+            "tier": ctx.tier if ctx else "free",
+            "configured": bool(keys.get(tid)),
+            "source": "env" if tid in env_keys else "file",  # env 供给的 Key 禁止在设置页修改
+        })
+    return out
+
+
 def _settings_payload() -> dict:
-    """汇总当前设置状态（含脱敏密钥、Provider、Agent、模型配置）"""
+    """汇总当前设置状态（含脱敏密钥、租户 Key、Provider、Agent、模型配置）"""
     agents = []
     for stem in list_agent_configs():
         cfg = load_agent_config(stem)
@@ -650,6 +676,7 @@ def _settings_payload() -> dict:
             }
             for m in _API_KEY_META
         ],
+        "tenant_keys": _tenant_keys_payload(),
         "providers": _provider_registry.list_available(),
         "agents": agents,
         "models_config": load_models_config(),
@@ -704,6 +731,52 @@ async def update_api_keys(request: Request):
     logger.info("API Key 已更新，Provider/Agent 配置已重载",
                 extra={"updated": [k for k, v in api_keys.items() if v]})
     return _settings_payload()
+
+
+@app.get("/api/settings/tenant-keys")
+async def get_tenant_keys_status(request: Request):
+    """租户 Key 状态列表（仅 admin；不返回密钥内容）"""
+    _require_admin_access(request)
+    return {"tenant_keys": _tenant_keys_payload()}
+
+
+@app.post("/api/settings/tenant-keys")
+async def update_tenant_key(request: Request):
+    """创建/轮换/删除租户 Key（C2 方案①，仅 admin；写入 config/tenant_keys.yaml）
+
+    Body: {"tenant_id": "t1", "api_key": "<新Key>"}；api_key 为空表示删除。
+    租户须已在租户注册中心（ECOMM_TENANTS）存在，否则 403。
+    """
+    _require_admin_access(request)
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "请求体必须是 JSON")
+
+    tenant_id = str(body.get("tenant_id", "")).strip()
+    api_key = str(body.get("api_key", "")).strip()
+    if not tenant_id:
+        raise HTTPException(400, "tenant_id 必填")
+    if tenant_id not in get_tenant_registry().list_ids():
+        raise HTTPException(403, f"未知租户: '{tenant_id}'（请先配置 ECOMM_TENANTS）")
+    if tenant_id in env_tenant_keys():
+        raise HTTPException(
+            403,
+            f"租户 '{tenant_id}' 的 Key 由 ECOMM_TENANT_KEYS 环境变量提供（优先级最高）："
+            "请在环境变量中修改后重启；设置页仅管理 config/tenant_keys.yaml 持久化的 Key")
+    if api_key and not (TENANT_KEY_MIN_LEN <= len(api_key) <= TENANT_KEY_MAX_LEN):
+        raise HTTPException(
+            400, f"租户 Key 长度须在 {TENANT_KEY_MIN_LEN}-{TENANT_KEY_MAX_LEN} 字符之间")
+
+    from src.core.config import save_tenant_keys_file
+    save_tenant_keys_file({tenant_id: api_key})
+    reload_tenant_keys()
+    logger.info("租户 Key 已更新", extra={"tenant_id": tenant_id, "configured": bool(api_key)})
+    return {
+        "tenant_id": tenant_id,
+        "configured": bool(api_key),
+        "tenant_keys": _tenant_keys_payload(),
+    }
 
 
 @app.post("/api/settings/agents/{agent_name}")
@@ -1279,20 +1352,18 @@ async def workflow_replicate(
 
 @app.websocket("/ws/workflows/jobs/{job_id}")
 async def ws_workflow_job(websocket: WebSocket, job_id: str):
-    """工作流实时事件流"""
-    expected_key = os.getenv("ECOMM_API_KEY", "")
-    if expected_key:
-        api_key = websocket.query_params.get("api_key", "")
-        if not hmac.compare_digest(api_key, expected_key):
-            await websocket.close(code=4001, reason="Missing or invalid API Key")
-            return
+    """工作流实时事件流（鉴权：全局 Key 或租户 Key；租户 Key 绑定租户身份）"""
+    role, bound_tenant = authenticate_api_key(websocket.query_params.get("api_key", ""))
+    if auth_enabled() and role == "none":
+        await websocket.close(code=4001, reason="Missing or invalid API Key")
+        return
 
     job = await _workflow_store.get_job(job_id)
     if job is None:
         await websocket.close(code=4004, reason="作业不存在")
         return
-    # 租户校验（审计修复：WS 也按租户隔离；tenant 查询参数可选）
-    tenant = websocket.query_params.get("tenant", "")
+    # 租户校验（审计修复：WS 也按租户隔离；租户 Key 绑定身份，覆盖 tenant 查询参数）
+    tenant = bound_tenant or websocket.query_params.get("tenant", "")
     if tenant and job.tenant_id != tenant:
         await websocket.close(code=4004, reason="作业不存在")
         return
@@ -1317,17 +1388,15 @@ async def ws_workflow_job(websocket: WebSocket, job_id: str):
 
 @app.websocket("/ws/sessions/{session_id}")
 async def ws_session(websocket: WebSocket, session_id: str):
-    """实时群聊消息流"""
+    """实时群聊消息流（鉴权：全局 Key 或租户 Key；租户 Key 绑定租户身份）"""
     # WebSocket 鉴权：检查查询参数 ?api_key=...（子协议方式未实现，见注释）
-    expected_key = os.getenv("ECOMM_API_KEY", "")
-    if expected_key:
-        api_key = websocket.query_params.get("api_key", "")
-        if not hmac.compare_digest(api_key, expected_key):
-            await websocket.close(code=4001, reason="Missing or invalid API Key")
-            return
+    role, bound_tenant = authenticate_api_key(websocket.query_params.get("api_key", ""))
+    if auth_enabled() and role == "none":
+        await websocket.close(code=4001, reason="Missing or invalid API Key")
+        return
 
-    # 租户校验（审计修复：WS 也按租户隔离；tenant 查询参数可选）
-    tenant = websocket.query_params.get("tenant", "")
+    # 租户校验（审计修复：WS 也按租户隔离；租户 Key 绑定身份，覆盖 tenant 查询参数）
+    tenant = bound_tenant or websocket.query_params.get("tenant", "")
     session = _session_manager.get(session_id, tenant_id=tenant)
     if session is None:
         await websocket.close(code=4004, reason="会话不存在")

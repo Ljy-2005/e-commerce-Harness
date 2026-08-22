@@ -66,7 +66,7 @@ class TestSettingsEndpoint:
         resp = client.get("/api/settings")
         assert resp.status_code == 200
         data = resp.json()
-        for key in ("mock_mode", "api_keys", "providers", "agents", "models_config", "model_catalog", "cors_origins"):
+        for key in ("mock_mode", "api_keys", "tenant_keys", "providers", "agents", "models_config", "model_catalog", "cors_origins"):
             assert key in data, f"缺少字段 {key}"
 
     def test_settings_agents_have_resolved_model(self):

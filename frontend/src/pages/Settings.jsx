@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { getSettings, saveApiKeys, getStoredApiKey, setStoredApiKey } from '../api'
+import { getSettings, saveApiKeys, saveTenantKey, getStoredApiKey, setStoredApiKey } from '../api'
 import ModelMappingEditor from '../components/ModelMappingEditor'
 
 export default function Settings() {
@@ -12,6 +12,8 @@ export default function Settings() {
   const [showModels, setShowModels] = useState(false)
   const [frontendKey, setFrontendKey] = useState(getStoredApiKey())
   const [frontendMsg, setFrontendMsg] = useState('')
+  const [tenantInputs, setTenantInputs] = useState({})  // tenant_id → 新输入明文
+  const [tenantMsg, setTenantMsg] = useState({})        // tenant_id → 操作反馈
 
   const refresh = useCallback(async () => {
     try {
@@ -49,6 +51,22 @@ export default function Settings() {
     setSaving(false)
   }
 
+  async function handleTenantKey(tenantId, value) {
+    setTenantMsg(prev => ({ ...prev, [tenantId]: '' }))
+    try {
+      const res = await saveTenantKey(tenantId, value)
+      const entry = (res.tenant_keys || []).find(t => t.tenant_id === tenantId)
+      setTenantInputs(prev => ({ ...prev, [tenantId]: '' }))
+      setTenantMsg(prev => ({
+        ...prev,
+        [tenantId]: entry?.configured ? '✅ 已保存并立即生效' : '✅ 已删除',
+      }))
+      refresh()
+    } catch (err) {
+      setTenantMsg(prev => ({ ...prev, [tenantId]: '❌ ' + (err.message || '操作失败') }))
+    }
+  }
+
   if (loading) {
     return (
       <div className="card text-center" style={{ minHeight: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -62,6 +80,7 @@ export default function Settings() {
   }
 
   const apiKeys = settings?.api_keys || []
+  const tenantKeys = settings?.tenant_keys || []
 
   return (
     <div>
@@ -96,6 +115,62 @@ export default function Settings() {
           }}>保存</button>
           {frontendMsg && <span className="text-sm" style={{ color: '#4ade80', alignSelf: 'center' }}>{frontendMsg}</span>}
         </div>
+      </div>
+
+      {/* 租户独立 API Key（C2 方案①：每租户一把钥匙） */}
+      <div className="card mb-2">
+        <h3 className="mb-1">🏢 租户 API Key（每租户独立钥匙）</h3>
+        <p className="text-sm mb-2" style={{ color: '#94a3b8' }}>
+          每个租户一把独立 Key：持租户 Key 的请求身份绑定该租户（<code className="text-xs">X-Tenant-ID</code> 声明会被忽略，防冒充），
+          且无权访问管理端点。持久化到 <code className="text-xs">config/tenant_keys.yaml</code>（已加入 .gitignore）。
+          租户清单来自 <code className="text-xs">ECOMM_TENANTS</code> 注册。
+        </p>
+        {tenantKeys.length === 0 && <p className="text-sm text-muted">暂无已注册租户（只有 default）。配置 ECOMM_TENANTS 后可在此分发租户 Key。</p>}
+        {tenantKeys.map(t => (
+          <div key={t.tenant_id} className="flex gap-1 items-center" style={{ marginBottom: 8 }}>
+            <span className="text-sm mono" style={{ minWidth: 110 }}>{t.tenant_id}</span>
+            <span className="badge badge-muted">{t.tier}</span>
+            <span style={{ minWidth: 90 }}>
+              {t.configured
+                ? <span className="badge badge-ok">已配置</span>
+                : <span className="badge badge-muted">未配置</span>}
+            </span>
+            {t.source === 'env' ? (
+              <span className="text-sm" style={{ color: '#94a3b8', alignSelf: 'center' }}>
+                🔒 由 <code className="text-xs">ECOMM_TENANT_KEYS</code> 环境变量提供（修改需改环境变量并重启）
+              </span>
+            ) : (
+              <>
+                <input
+                  className="input"
+                  type="password"
+                  autoComplete="off"
+                  placeholder={t.configured ? '输入新 Key 轮换，留空不修改' : '为租户创建 Key（≥16 字符）'}
+                  value={tenantInputs[t.tenant_id] ?? ''}
+                  onChange={e => setTenantInputs(prev => ({ ...prev, [t.tenant_id]: e.target.value }))}
+                  style={{ maxWidth: 320 }}
+                />
+                <button
+                  className="btn btn-primary btn-sm"
+                  disabled={!(tenantInputs[t.tenant_id] ?? '').trim() && t.configured === false}
+                  onClick={() => handleTenantKey(t.tenant_id, (tenantInputs[t.tenant_id] ?? '').trim())}
+                >
+                  {t.configured ? '保存/轮换' : '创建'}
+                </button>
+                {t.configured && (
+                  <button className="btn btn-danger btn-sm" onClick={() => handleTenantKey(t.tenant_id, '')}>
+                    删除
+                  </button>
+                )}
+                {tenantMsg[t.tenant_id] && (
+                  <span className="text-sm" style={{ color: tenantMsg[t.tenant_id].startsWith('✅') ? '#4ade80' : '#f87171', alignSelf: 'center' }}>
+                    {tenantMsg[t.tenant_id]}
+                  </span>
+                )}
+              </>
+            )}
+          </div>
+        ))}
       </div>
 
       <div className="grid-2" style={{ alignItems: 'start' }}>

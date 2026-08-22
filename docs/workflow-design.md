@@ -1,8 +1,8 @@
 # Workflow 编排层设计文档
 
-> 版本：v0.4（Phase 1-4a 已实现）
-> 日期：2026-08-16
-> 状态：M1-M5a 全部交付（见 §11 里程碑与 §13 实施记录）；M5b 候选见 progress.md §5.3
+> 版本：v0.5（Phase 1-4b 已实现）
+> 日期：2026-08-22
+> 状态：M1-M5b 全部交付（见 §11 里程碑与 §13 实施记录）；平台级连接器经用户确认不做（2026-08-22）
 > 参考：OiiOii 2.0 的产品范式（智能画布 / Skill 库 / 一键拉片复刻 / 7-Agent 团队 / 自动挡·手动挡）
 
 ---
@@ -335,7 +335,7 @@ batches(batch_id, template_name, tenant_id, status, total, done, failed,
 | `POST` | `/api/webhooks/workflows/{id}/decision` | 入站 Webhook 回调触发审批决策（`X-Webhook-Token` 鉴权，M4） |
 | `WS` | `/ws/workflows/jobs/{id}` | 实时事件流（画布高亮 + 节点日志） |
 
-鉴权：全部走现有 `AuthMiddleware`（`ECOMM_API_KEY` 配置后自动保护）；租户经 `X-Tenant-ID`；入站 Webhook 额外要求 `ECOMM_WEBHOOK_TOKEN`。
+鉴权：全部走现有 `AuthMiddleware`（全局 `ECOMM_API_KEY` 或租户 Key，任一配置后自动保护；租户 Key 绑定租户身份，`X-Tenant-ID` 声明被忽略——C2 方案①，见 `docs/modules/auth.md`）；租户经 `X-Tenant-ID`（管理 Key）或密钥绑定；入站 Webhook 额外要求 `ECOMM_WEBHOOK_TOKEN`。
 
 ---
 
@@ -404,7 +404,7 @@ batches(batch_id, template_name, tenant_id, status, total, done, failed,
 | **M3（Phase 2b）** | 一键风格复刻（新增「风格拆解员」Agent，YAML 注册零核心改动）+ 群聊插话（WS 双向指令） | ✅ 已交付：风格拆解员（插件化 class 注册，9 Agent）+ style_replicate 模板（双图片输入）+ replicate API + 引擎风格注入重跑；群聊插话（REST + WS 双向 + 前端输入框）；15 个新测试，风格要素匹配由 spy 测试验证 |
 | **M4（Phase 3）** | 审批 SLA 超时自动决策 + webhook/连接器接口 + 模板导入导出 | ✅ 已交付：human 节点 SLA（auto_approve/auto_reject/keep_waiting + 事件）；webhook_notify 出站工具 + POST /api/webhooks/workflows/{id}/decision 入站回调（token 鉴权）；模板导出/导入（校验/防覆盖/force）；演示模板 light_approval；14 个新测试 |
 | **M5a（Phase 4a）** | 批量任务报表页 | ✅ 已交付：`JobStore.get_batch_report`（总览/模板成功率/耗时直方图/失败原因 Top-5，租户隔离）+ `GET /api/workflows/batches/report` + 前端批量页「数据报表」标签（recharts 图表）；6 个新测试 |
-| **M5b（Phase 4b）** | 审批 SLA 业务矩阵 | ✅ 已交付：`sla_matrix` 表达式规则（顺序匹配 → default → 遗留 on_sla_timeout），超时事件携带命中策略；`approval_matrix` 演示模板（评分≥75 自动通过 / ≥60 自动拒绝 / 默认继续等待）；7 个新测试。**剩余候选**：平台级连接器（淘宝/Amazon 拉取与回传，见 progress.md §5.3） |
+| **M5b（Phase 4b）** | 审批 SLA 业务矩阵 | ✅ 已交付：`sla_matrix` 表达式规则（顺序匹配 → default → 遗留 on_sla_timeout），超时事件携带命中策略；`approval_matrix` 演示模板（评分≥75 自动通过 / ≥60 自动拒绝 / 默认继续等待）；7 个新测试。**平台级连接器（淘宝/Amazon 拉取与回传）经用户确认不做（2026-08-22，决策 31）**——现有 webhook 出站/入站连接器保留，平台对接留待未来需求 |
 
 ---
 

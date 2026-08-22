@@ -69,6 +69,7 @@
 | `cb03920` | **M5b 审批 SLA 矩阵**（决策 22） | engine sla_matrix（表达式规则顺序匹配→default→遗留策略，事件携带命中来源）；approval_matrix 演示模板；Dashboard 轮询失败横幅；+7 测试，446 全绿 |
 | `959e6e3` | **端到端检验修复** | 冒烟检验发现：前端 DEMO_ITEMS 缺 product_images 占位符（JSON 演示批次全死信）→ 修复；engine remember() 漏传 tenant_id（第三轮回归）→ 修复；TestHumanNode 轮询预算 20s→40s 防偶发 |
 | *（未提交）* | **前端依赖核查** | `npm outdated`/`npm audit` 全量核查（npmmirror 无 advisory 端点，改用官方 registry）：5 个漏洞清零 —— vite 5.4.21→7.3.6（修复 esbuild GHSA-67mh-4wv8-2f99 dev-server 请求走私，plugin-react 4.7 兼容无需升）、react-router-dom 6.30.6→7.18.2（6.x 线已 EOL 无修复，CVE-2025-68470 开重定向仅 v7.18+ 修复；声明式路由 API 零改动）、nanoid 3.3.17→3.3.18（postcss 传递依赖）；React 18 / recharts 2 保持（非安全项，大版本延期）；build 零告警 + dev 冒烟 + pytest 446 全绿 |
+| *（未提交）* | **C2 每租户独立 Key** | 决策一落地（方案①）：`auth.py` 双凭据体系（全局 admin Key + 租户 Key）——租户 Key 存储在 `config/tenant_keys.yaml`（0600+gitignore）或 `ECOMM_TENANT_KEYS` 引导；中间件重写 X-Tenant-ID 为密钥绑定租户（密钥即身份，防冒充）；管理端点仅 admin（租户 Key 403）；`POST /api/settings/tenant-keys` 分发/轮换/删除 + 设置页租户 Key 管理卡；env 供给的 Key 优先级最高且禁止经设置页修改（防改了不生效）；WS 双端点同权；+17 测试；决策二（平台连接器）经用户确认**不做**，文档关闭 |
 
 ### 2.2 功能模块完成度
 
@@ -107,7 +108,8 @@
 
 ### 2.4 测试覆盖
 
-- **41 个测试文件**，**446 个测试通过**（`pytest` 全量 Mock Mode，无自有 RuntimeWarning）
+- **42 个测试文件**，**463 个测试通过**（`pytest` 全量 Mock Mode，无自有 RuntimeWarning）
+- C2 每租户独立 Key（决策 31）：+17 测试（`test_tenant_keys.py` 16 例——密钥绑定身份/跨租户隔离/管理端点权限/Key CRUD 与持久化/env 供给保护/WS；`test_auth.py` +1 管理面租户角色 403）
 - 时序加固：批量死信重跑测试改为 spy 断言（不再依赖轮询瞬时状态），全量运行多次无偶发失败
 - M5a 批量报表：聚合逻辑 3 测试（总览/模板/直方图/失败原因/租户隔离）+ 端点 3 测试（含路由防吞回归）
 - 四域审计第一轮（决策 18）：+34 测试（路径穿越 10 参数、租户 403/404、retry_step 重启、model_override 传播、SSRF 8 组、上传 413、批次上限、报表幽灵条目、熔断计 error dict、cancel 唤醒等）
@@ -117,7 +119,7 @@
 - M5b（决策 22）：+7 测试（sla_matrix 单元 5 例：顺序匹配/default/遗留/缺失值安全 + approval_matrix 端到端 2 例：评分驱动 auto_approve、矩阵 default auto_reject）
 - E2E 检验（959e6e3）：启动真实服务冒烟——会话 8 轮群聊 / 工作流 8 步 / 审批矩阵自动决策 / 批量 2/2 / 报表 / 记忆 / 审计 / 设置全部通过；修复演示数据与记忆租户透传 2 个缺陷
 - 覆盖范围：
-  - `test_api/` — FastAPI 端点测试（含设置/会话列表/密钥持久化/模型映射/群聊插话 21 个新测试）
+  - `test_api/` — FastAPI 端点测试（含设置/会话列表/密钥持久化/模型映射/群聊插话/**租户 Key**）
   - `test_agents/` — 9 个 Agent 单测（含风格拆解员插件化注册）
   - `test_chat/` — 引擎 / HITL / 反幻觉 / 模式
   - `test_harness/` — 熔断 / 限流 / 重试 / 超时 / 记忆 / 成本 / 集成 / 审计 / A-B / 图片预处理
@@ -255,6 +257,7 @@ src/
 | 28 | "后面还有什么计划" + "按你的建议来" | 第四轮 + 工程化配套（决策 21）：① 技术债收尾——`reconcile_batch_counts` 原子调和（只增不减，替代绝对覆盖）、熔断器全局单例测试隔离（autouse 快照/还原）、Provider 探测测试重写为真实断言（monkeypatch + 真注册表）、CSV GBK/BOM/无表头/空/不可解码矩阵、`hmac.compare_digest`（auth/webhook/双 WS）、公开前缀精确匹配（防 /healthX）；② CI 接入（GitHub Actions：pytest + ruff + 前端构建；ruff 本地因 pip 网络受限仅在 CI 运行）；③ Docker 部署口径修复（多阶段 `nginx.Dockerfile` 前端产物打进镜像 + `nginx.conf.template` envsubst + compose 改造，废除空 `frontend_dist` 卷）；+8 测试，pytest 439 全绿 |
 | 29 | "继续" | M5b 审批 SLA 业务矩阵（决策 22）：engine `sla_matrix`（表达式规则顺序匹配 → default → 遗留 on_sla_timeout，超时事件携带命中策略）；`approval_matrix` 演示模板（评分≥75 自动通过/≥60 自动拒绝/默认继续等待）；前端 Dashboard 轮询失败横幅（审计 L6）；+7 测试，pytest 446 全绿 |
 | 30 | "按 progress.md 第 5.3 节遗留的开放决策选择下一项任务继续" | 选择「前端依赖核查」（C2 租户凭据绑定需用户选方案、平台级连接器需业务决策，均非自足任务）：npm audit 5 漏洞清零 —— vite 7.3.6（esbuild 漏洞）+ react-router-dom 7.18.2（6.x EOL，CVE 仅 v7.18+ 修复）+ nanoid 3.3.18；声明式路由 API 零改动；build 零告警、dev server 冒烟、pytest 446 全绿；React 19 / recharts 3 / Vite 8 大版本升级记录为后续候选 |
+| 31 | "决策1用第一个方案，决策2不需要打通" | 两项开放决策定案：**C2 租户凭据绑定 → 方案①每租户独立 Key**（实施完毕，见里程碑表）；**平台级连接器 → 明确不做**（文档关闭）。C2 实施要点：① 租户 Key 即身份——中间件把 X-Tenant-ID 重写为密钥绑定租户（`_set_scope_header` 改 ASGI scope，下游 FastAPI 按 scope 重建 Request 时生效），冒充租户头彻底封死；② 任一 Key 配置即强制鉴权（不再只看全局 Key），全未配置仍是开发模式开放（向后兼容）；③ 管理面按 `request.state.auth_role` 分权：admin 放行 / tenant 403 / 开发模式仅本机；④ WS 端点复用同一 `authenticate_api_key`，绑定身份覆盖 tenant 查询参数；⑤ 租户 Key 管理端点仅 admin，租户须已在 ECOMM_TENANTS 注册、Key 长度 16-256，轮换即时生效（旧 Key 立刻失效）；⑥ 环境变量供给的 Key 优先级最高、设置页禁止修改（冒烟实测暴露"改了不生效"陷阱后加固），UI 标注来源；⑦ 测试隔离教训——fixture teardown 在 monkeypatch 恢复环境前 reload 会把测试 Key 缓存进模块级状态导致后续模块全 401，改为 teardown 置 None 惰性重载；+17 测试，pytest 463 全绿 |
 
 ### 5.2 关键决策点
 
@@ -333,11 +336,13 @@ M5a 批量报表的三个实现要点：① **数据源联表**：条目耗时/�
 - ~~**`ABTestRunner` 的 model_override 语义**：提示词注入不切换真实模型~~ → ✅ 2026-08-18 修复（决策 18）：`BaseAgent.execute(model_override=...)` 经 ContextVar 传递，`_model_kwargs()` 优先取覆盖值，并发变体互不干扰；删除提示词注入与死代码恢复
 - ~~**前端构建产物体积**：单 chunk 603KB（recharts 占大头），可用 `manualChunks`/动态 import 拆包优化~~ → ✅ 2026-08-16 完成：10 个页面 `React.lazy` 按路由拆包（每页 3.8-21KB）+ `manualChunks` 分离 `charts`（recharts+d3，仅图表页按需加载）/ `react-vendor`（165KB）/ `vendor`（40KB）；入口 chunk 603KB → 6KB，build 零告警
 - ~~**设置页敏感操作**：`/api/settings/*` 写操作在 `ECOMM_API_KEY` 未配置时开放（开发模式）~~ → ✅ 2026-08-18 修复（决策 18）：管理面增加 `_require_admin_access`——未配置 Key 时仅允许本机（127.0.0.1/::1/localhost），远程一律 403；配置 Key 后由 AuthMiddleware 全局保护
-- **Workflow M5b**：~~审批 SLA 业务矩阵~~ ✅ 2026-08-20 已交付（决策 22，approval_matrix 模板）；**剩余**：平台级连接器（淘宝/Amazon 商品库拉取与发布回传）
+- ~~**C2 租户凭据绑定**（架构级）~~ → ✅ 2026-08-22 用户选定**方案①每租户独立 Key**并实施（决策 31）：`auth.py` 双凭据（全局 admin Key / 租户 Key）、租户 Key 即身份（X-Tenant-ID 被重写，防冒充）、管理端点仅 admin、`POST /api/settings/tenant-keys` + 设置页管理卡、WS 同权；+14 测试
+- ~~**平台级连接器**（淘宝/Amazon 商品库拉取与发布回传）~~ → ✅ 2026-08-22 **用户确认不做**（决策 31）。现有 webhook 出站/入站连接器保留，平台对接留待未来需求
+- **Workflow M5b**：~~审批 SLA 业务矩阵~~ ✅ 2026-08-20 已交付（决策 22，approval_matrix 模板）
 - ~~MEDIUM/LOW 是否继续修~~ → ✅ 2026-08-16 已全部完成（决策 15），65/65 修复率 100%。
 - ~~**前端依赖核查**（code-review.md §六 第五轮候选的 `npm outdated`）~~ → ✅ 2026-08-22 完成：`npm audit` 5 漏洞清零（vite 7.3.6 修复 esbuild GHSA-67mh-4wv8-2f99、react-router-dom 7.18.2 修复 GHSA-wrjc-x8rr-h8h6 + GHSA-337j-9hxr-rhxg、nanoid 3.3.18 修复 GHSA-2v37-7h3g-55p8）。**React 19 / recharts 3 / Vite 8 大版本升级**列为后续候选：无安全收益、需回归成本（recharts 3 为破坏性重写）
 
-> ⚠️ **2026-08-22 快照**：四域审计 4 CRITICAL + 10 HIGH（决策 18）+ 二/三/四轮 MEDIUM/LOW 技术债（决策 19-21）+ M5b 审批矩阵（决策 22）+ 前端依赖核查全部完成，测试 **446 全绿**、前端 build 零告警（vite 7 / react-router 7）、`npm audit` 0 漏洞、CI 已配置、17 笔提交。**仅剩架构级/业务级**：C2 租户凭据绑定（待选方案：每租户独立 Key / JWT tenant claim / 维持现状）、平台级连接器。详单见 docs/code-review.md §六。
+> ⚠️ **2026-08-22 快照**：四域审计 4 CRITICAL + 10 HIGH（决策 18）+ 二/三/四轮 MEDIUM/LOW 技术债（决策 19-21）+ M5b 审批矩阵（决策 22）+ 前端依赖核查 + C2 每租户独立 Key 全部完成，测试 **463 全绿**、前端 build 零告警（vite 7 / react-router 7）、`npm audit` 0 漏洞、CI 已配置。**5.3 节遗留开放决策全部关闭**（C2 已按方案①实施；平台连接器经用户确认不做）。后续候选：React 19 / recharts 3 / Vite 8 大版本升级（无安全收益，暂缓）。
 
 ---
 
