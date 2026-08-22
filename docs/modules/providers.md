@@ -16,7 +16,7 @@ Provider 层封装了所有外部 AI 服务的调用细节，提供统一的 LLM
 | Provider | 能力 | 环境变量 | API 模式 |
 |----------|------|---------|---------|
 | OpenAI | vision, text, image | `OPENAI_API_KEY` | GPT-4o + DALL-E 3 via `/v1/chat/completions` |
-| DeepSeek | text | `DEEPSEEK_API_KEY` | OpenAI 兼容 API via `/v1/chat/completions` |
+| DeepSeek | text, vision | `DEEPSEEK_API_KEY` | OpenAI 兼容 API via `/v1/chat/completions`（V4：flash / pro / flash-vision-exp） |
 | Anthropic | vision, text | `ANTHROPIC_API_KEY` | Claude Sonnet/Opus via `/v1/messages` |
 | Seedream | image | `SEEDREAM_API_KEY` 或 `VOLCANO_ACCESS_KEY`+`VOLCANO_SECRET_KEY` | 即梦AI 5.0 |
 | Qwen | vision, text | `DASHSCOPE_API_KEY` | 通义千问 via DashScope 兼容 API |
@@ -70,7 +70,7 @@ MockLLMProvider + MockImageProvider，返回保健品模板数据。关键词匹
 OpenAILLMProvider + OpenAIImageProvider。GPT-4o (vision+text) + DALL-E 3 (image)。
 
 ### DeepSeek Provider (`deepseek.py`)
-DeepSeekLLMProvider。仅 text，价格 ~¥1/百万 token。
+DeepSeekLLMProvider。V4 代（2026-08 起）：`deepseek-v4-flash`（文本默认）/ `deepseek-v4-pro`（更强）/ `deepseek-v4-flash-vision-exp`（多模态视觉，含 `chat_with_vision`）。价格 ~¥1/百万 token。旧别名 `deepseek-chat`/`deepseek-reasoner` 已弃用。
 
 ### Anthropic Provider (`anthropic.py`)
 AnthropicLLMProvider。Claude Sonnet/Opus/Haiku，200K 上下文。关键：`_convert_messages()` 将 OpenAI 格式转为 Anthropic 格式（图片用 `base64` source）。
@@ -90,11 +90,11 @@ FluxImageProvider。写实光影最强。三后端优先级：BFL 官方 > Fal.a
 capabilities:
   vision:
     default: openai/gpt-4o
-    alternatives: [anthropic/claude-sonnet-4-20250514, qwen/qwen-vl-max]
+    alternatives: [deepseek/deepseek-v4-flash-vision-exp, anthropic/claude-sonnet-4-20250514, qwen/qwen-vl-max]
     fallback: [mock]
   text:
-    default: openai/gpt-4o
-    alternatives: [anthropic/claude-sonnet-4-20250514, deepseek/deepseek-chat, qwen/qwen-max]
+    default: deepseek/deepseek-v4-flash
+    alternatives: [deepseek/deepseek-v4-pro, openai/gpt-4o, anthropic/claude-sonnet-4-20250514, qwen/qwen-max]
     fallback: [mock]
   image:
     default: openai/dall-e-3
@@ -103,7 +103,7 @@ capabilities:
 
 agent_overrides:
   提示词生成员:
-    text: deepseek/deepseek-chat
+    text: deepseek/deepseek-v4-flash
 ```
 
 ## 使用方式

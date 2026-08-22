@@ -39,9 +39,9 @@ class ProviderRegistry:
         if os.getenv("OPENAI_API_KEY"):
             self._meta["openai"] = _ProviderMeta("openai", True, ["vision", "text", "image"])
 
-        # 检测 DeepSeek
+        # 检测 DeepSeek（V4 代含多模态视觉能力，2026-08）
         if os.getenv("DEEPSEEK_API_KEY"):
-            self._meta["deepseek"] = _ProviderMeta("deepseek", True, ["text"])
+            self._meta["deepseek"] = _ProviderMeta("deepseek", True, ["text", "vision"])
 
         # 检测 Anthropic
         if os.getenv("ANTHROPIC_API_KEY"):

@@ -612,7 +612,7 @@ async def list_sessions(x_tenant_id: str = Header("default", alias="X-Tenant-ID"
 # 各 Provider 可选模型目录（设置页下拉提示用）
 _MODEL_CATALOG = {
     "openai": ["gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini", "o3", "o4-mini", "dall-e-3"],
-    "deepseek": ["deepseek-chat", "deepseek-reasoner"],
+    "deepseek": ["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-v4-flash-vision-exp"],
     "anthropic": ["claude-sonnet-4-20250514", "claude-3-5-haiku-20241022"],
     "qwen": ["qwen-max", "qwen-vl-max", "qwen-plus"],
     "seedream": ["seedream-5.0", "seedream-4.0"],

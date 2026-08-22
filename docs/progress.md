@@ -70,6 +70,7 @@
 | `959e6e3` | **端到端检验修复** | 冒烟检验发现：前端 DEMO_ITEMS 缺 product_images 占位符（JSON 演示批次全死信）→ 修复；engine remember() 漏传 tenant_id（第三轮回归）→ 修复；TestHumanNode 轮询预算 20s→40s 防偶发 |
 | `f817592` | **前端依赖核查** | `npm outdated`/`npm audit` 全量核查（npmmirror 无 advisory 端点，改用官方 registry）：5 个漏洞清零 —— vite 5.4.21→7.3.6（修复 esbuild GHSA-67mh-4wv8-2f99 dev-server 请求走私，plugin-react 4.7 兼容无需升）、react-router-dom 6.30.6→7.18.2（6.x 线已 EOL 无修复，CVE-2025-68470 开重定向仅 v7.18+ 修复；声明式路由 API 零改动）、nanoid 3.3.17→3.3.18（postcss 传递依赖）；React 18 / recharts 2 保持（非安全项，大版本延期）；build 零告警 + dev 冒烟 + pytest 446 全绿 |
 | `4ef8668` | **C2 每租户独立 Key** | 决策一落地（方案①）：`auth.py` 双凭据体系（全局 admin Key + 租户 Key）——租户 Key 存储在 `config/tenant_keys.yaml`（0600+gitignore）或 `ECOMM_TENANT_KEYS` 引导；中间件重写 X-Tenant-ID 为密钥绑定租户（密钥即身份，防冒充）；管理端点仅 admin（租户 Key 403）；`POST /api/settings/tenant-keys` 分发/轮换/删除 + 设置页租户 Key 管理卡；env 供给的 Key 优先级最高且禁止经设置页修改（防改了不生效）；WS 双端点同权；+17 测试；决策二（平台连接器）经用户确认**不做**，文档关闭 |
+| *（未提交）* | **DeepSeek V4 模型升级** | 用户指出 DeepSeek 默认模型过时——`deepseek-chat`/`deepseek-reasoner` 为 V3 旧别名，官方当前为 `deepseek-v4-flash`/`deepseek-v4-pro`/`deepseek-v4-flash-vision-exp`。升级：text 默认→`deepseek/deepseek-v4-flash`（+v4-pro 备选）；**DeepSeek 新获视觉能力**——provider 补 `chat_with_vision`（OpenAI 兼容多模态）+ 注册表能力 `["text","vision"]` + vision 备选加 `deepseek/deepseek-v4-flash-vision-exp`；设置页目录更新为 v4 三型号。+5 测试 |
 
 ### 2.2 功能模块完成度
 
@@ -108,8 +109,9 @@
 
 ### 2.4 测试覆盖
 
-- **42 个测试文件**，**463 个测试通过**（`pytest` 全量 Mock Mode，无自有 RuntimeWarning）
+- **43 个测试文件**，**468 个测试通过**（`pytest` 全量 Mock Mode，无自有 RuntimeWarning）
 - C2 每租户独立 Key（决策 31）：+17 测试（`test_tenant_keys.py` 16 例——密钥绑定身份/跨租户隔离/管理端点权限/Key CRUD 与持久化/env 供给保护/WS；`test_auth.py` +1 管理面租户角色 403）
+- DeepSeek V4 模型升级：+5 测试（`test_deepseek.py`——V4 默认模型/JSON 模式/视觉多模态透传/API 错误）
 - 时序加固：批量死信重跑测试改为 spy 断言（不再依赖轮询瞬时状态），全量运行多次无偶发失败
 - M5a 批量报表：聚合逻辑 3 测试（总览/模板/直方图/失败原因/租户隔离）+ 端点 3 测试（含路由防吞回归）
 - 四域审计第一轮（决策 18）：+34 测试（路径穿越 10 参数、租户 403/404、retry_step 重启、model_override 传播、SSRF 8 组、上传 413、批次上限、报表幽灵条目、熔断计 error dict、cancel 唤醒等）
@@ -342,7 +344,7 @@ M5a 批量报表的三个实现要点：① **数据源联表**：条目耗时/�
 - ~~MEDIUM/LOW 是否继续修~~ → ✅ 2026-08-16 已全部完成（决策 15），65/65 修复率 100%。
 - ~~**前端依赖核查**（code-review.md §六 第五轮候选的 `npm outdated`）~~ → ✅ 2026-08-22 完成：`npm audit` 5 漏洞清零（vite 7.3.6 修复 esbuild GHSA-67mh-4wv8-2f99、react-router-dom 7.18.2 修复 GHSA-wrjc-x8rr-h8h6 + GHSA-337j-9hxr-rhxg、nanoid 3.3.18 修复 GHSA-2v37-7h3g-55p8）。**React 19 / recharts 3 / Vite 8 大版本升级**列为后续候选：无安全收益、需回归成本（recharts 3 为破坏性重写）
 
-> ⚠️ **2026-08-22 快照**：四域审计 4 CRITICAL + 10 HIGH（决策 18）+ 二/三/四轮 MEDIUM/LOW 技术债（决策 19-21）+ M5b 审批矩阵（决策 22）+ 前端依赖核查 + C2 每租户独立 Key 全部完成，测试 **463 全绿**、前端 build 零告警（vite 7 / react-router 7）、`npm audit` 0 漏洞、CI 已配置。**5.3 节遗留开放决策全部关闭**（C2 已按方案①实施；平台连接器经用户确认不做）。后续候选：React 19 / recharts 3 / Vite 8 大版本升级（无安全收益，暂缓）。
+> ⚠️ **2026-08-22 快照**：四域审计 4 CRITICAL + 10 HIGH（决策 18）+ 二/三/四轮 MEDIUM/LOW 技术债（决策 19-21）+ M5b 审批矩阵（决策 22）+ 前端依赖核查 + C2 每租户独立 Key + DeepSeek V4 模型升级全部完成，测试 **468 全绿**、前端 build 零告警（vite 7 / react-router 7）、`npm audit` 0 漏洞、CI 已配置。**5.3 节遗留开放决策全部关闭**（C2 已按方案①实施；平台连接器经用户确认不做）。后续候选：React 19 / recharts 3 / Vite 8 大版本升级（无安全收益，暂缓）。
 
 ---
 
