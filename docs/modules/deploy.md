@@ -101,12 +101,15 @@ pytest
 # 4. Ruff 静态检查（CI 同款）
 ruff check src tests
 
-# 5. 启动开发服务器
+# 5. 启动开发服务器（一键启动：双击 start.bat 或 python start.py）
 uvicorn src.api.main:app --reload --port 8000
 
 # 6. CLI 测试
 python -m src.cli run product.jpg --platform taobao
 ```
+
+> 一键启动：`python start.py`（或 Windows 双击 `start.bat`）自动拉起后端 + 前端、等待就绪并打开浏览器；
+> 停止：`stop.bat` 或在启动窗口按 Ctrl+C。参数见 `python start.py --help`。
 
 ## 生产部署流程
 

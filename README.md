@@ -22,12 +22,29 @@
 
 ## 快速开始
 
-```bash
-# 安装依赖
-pip install -e ".[dev]"
+### 一键启动（推荐）
 
-# Mock Mode 启动（无需 API Key）
+Windows 双击 `start.bat`，或命令行：
+
+```bash
+python start.py                 # 启动后端 + 前端，就绪后自动打开浏览器
+python start.py --no-browser    # 不自动打开浏览器
+python start.py --backend-only  # 只启动后端
+python start.py --frontend-only # 只启动前端
+```
+
+- 服务已在运行时自动复用，不重复启动；就绪前显示等待进度
+- 停止：双击 `stop.bat`（Windows），或在启动窗口按 `Ctrl+C`
+- 首次使用前安装依赖：`pip install -e ".[dev]"` + `cd frontend && npm install`
+
+### 手动启动（开发模式）
+
+```bash
+# 后端（Mock Mode，无需 API Key）
 uvicorn src.api.main:app --reload --port 8000
+
+# 前端（另开终端）
+cd frontend && npm run dev    # http://localhost:5173
 
 # 或者用 CLI
 python -m src.cli run ./product.jpg --platform taobao

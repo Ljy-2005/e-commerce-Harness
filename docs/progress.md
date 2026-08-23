@@ -72,6 +72,8 @@
 | `4ef8668` | **C2 每租户独立 Key** | 决策一落地（方案①）：`auth.py` 双凭据体系（全局 admin Key + 租户 Key）——租户 Key 存储在 `config/tenant_keys.yaml`（0600+gitignore）或 `ECOMM_TENANT_KEYS` 引导；中间件重写 X-Tenant-ID 为密钥绑定租户（密钥即身份，防冒充）；管理端点仅 admin（租户 Key 403）；`POST /api/settings/tenant-keys` 分发/轮换/删除 + 设置页租户 Key 管理卡；env 供给的 Key 优先级最高且禁止经设置页修改（防改了不生效）；WS 双端点同权；+17 测试；决策二（平台连接器）经用户确认**不做**，文档关闭 |
 | *（未提交）* | **DeepSeek V4 模型升级** | 用户指出 DeepSeek 默认模型过时——`deepseek-chat`/`deepseek-reasoner` 为 V3 旧别名，官方当前为 `deepseek-v4-flash`/`deepseek-v4-pro`/`deepseek-v4-flash-vision-exp`。升级：text 默认→`deepseek/deepseek-v4-flash`（+v4-pro 备选）；**DeepSeek 新获视觉能力**——provider 补 `chat_with_vision`（OpenAI 兼容多模态）+ 注册表能力 `["text","vision"]` + vision 备选加 `deepseek/deepseek-v4-flash-vision-exp`；设置页目录更新为 v4 三型号。+5 测试 |
 | *（未提交）* | **前端美术升级（玻璃拟态+流动动效）** | 用户主导的视觉打磨：① 全局——动态极光背景（双光斑漂移）、玻璃卡片（半透明+backdrop-blur+顶部高光）、流动渐变标题/主按钮、状态点呼吸、`prefers-reduced-motion` 可访问性降级；② 仪表盘——统计卡分色左带+渐变数值、快捷入口 hover 抬升；③ 群聊直播——消息条改为"头像列+角色配色玻璃气泡"、输入框改磨砂圆角 composer+圆形渐变发送钮、**「正在输入」typing 指示器**（会话 running 态显示，三点弹跳动画，带 role=status）；④ 工作流画布——节点玻璃化+运行中脉冲光环。纯前端、零功能/测试影响 |
+| *（未提交）* | **生图占位防混淆 + 模型映射能力过滤** | 用户反馈"agent 看不到上传图"→ 实测诊断：分析员实为真实 DeepSeek 视觉结果，问题在生图环节（仅配 DeepSeek Key，DeepSeek 不支持生图 → 生图员回落 Mock 占位图，审查/合规基于占位图出模板）。修复：① 占位图打徽章+警示横幅+群聊消息提示；② 模型映射编辑器按能力过滤建议（封堵把 DeepSeek 视觉误配进 image 的坑，用户已在设置页误配过）；③ image 默认 seedream-5.0（用户选定即梦）、alternatives 修正为 dall-e-3/flux |
+| *（未提交）* | **一键启动程序** | 用户要求：`start.py`（启动后端+前端、端口复用检测、健康就绪等待、自动开浏览器、Ctrl+C 优雅停止、依赖预检、UTF-8/ANSI 控制台、自定义端口参数）+ 双击 `start.bat` + `stop.bat`（按端口清理）+ README 快速开始章节；+6 启动器单测；实测：首次启动/复用/停止三流程全通过 |
 
 ### 2.2 功能模块完成度
 
