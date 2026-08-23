@@ -1,6 +1,6 @@
 # E-Commerce Harness — 项目状态总览
 
-> 最后更新：2026-08-22
+> 最后更新：2026-08-23
 > 本文档汇总项目**进度**、**现有计划**、**开发思路**与**关键决策对话**，作为团队交接与后续开发的单一事实来源（Single Source of Truth）。
 
 ---
@@ -10,13 +10,15 @@
 ```
 这是 E-Commerce Harness 项目（群聊式多智能体电商商品图生成），
 工作目录 D:\vscode-project\e-commerce Harness。
-请先读 docs/progress.md（第 0 节之外的全部内容）和 docs/workflow-design.md，
-然后按 progress.md 第 5.3 节「遗留的开放决策」选择下一项任务继续。
-常用命令：pytest（全量测试，当前 446 通过）、
-前端 cd frontend && npm run build、
-后端 python -m uvicorn src.api.main:app --host 127.0.0.1 --port 8000、
-前端开发 cd frontend && npm run dev（端口 5173）。
-服务若未运行请先启动并验证 /health。
+请先读 docs/progress.md（第 0 节之外的全部内容）、docs/workflow-design.md 和 docs/test-plan.md，
+然后按 progress.md 第 5.3 节「遗留的开放决策」/ test-plan.md 的 P3-P6 阶段选择下一项任务继续。
+常用命令：
+  pytest                          # 后端全量（当前 468 通过）
+  cd frontend && npm test         # 前端 Vitest（当前 63 通过）
+  cd frontend && npm run build    # 前端构建
+  python scripts/e2e_smoke.py     # E2E 冒烟（7 场景一键全链路，自动起停服务）
+  python start.py                 # 一键启动前后端（Windows 也可双击 start.bat）
+服务若未运行请先启动并验证 /health（启动后 /api/settings 可查运行模式与模型映射）。
 ```
 
 ---
@@ -41,7 +43,7 @@
 
 ### 2.1 里程碑时间线
 
-按 git 提交顺序（当前 **17 笔提交**，工作树干净）：
+按 git 提交顺序（当前 **30 笔提交**，工作树干净；表中标注「未提交」的历史行系早期记录，其工作已随后续提交固化）：
 
 | 提交 | 阶段 | 交付内容 |
 |------|------|---------|
@@ -70,12 +72,12 @@
 | `959e6e3` | **端到端检验修复** | 冒烟检验发现：前端 DEMO_ITEMS 缺 product_images 占位符（JSON 演示批次全死信）→ 修复；engine remember() 漏传 tenant_id（第三轮回归）→ 修复；TestHumanNode 轮询预算 20s→40s 防偶发 |
 | `f817592` | **前端依赖核查** | `npm outdated`/`npm audit` 全量核查（npmmirror 无 advisory 端点，改用官方 registry）：5 个漏洞清零 —— vite 5.4.21→7.3.6（修复 esbuild GHSA-67mh-4wv8-2f99 dev-server 请求走私，plugin-react 4.7 兼容无需升）、react-router-dom 6.30.6→7.18.2（6.x 线已 EOL 无修复，CVE-2025-68470 开重定向仅 v7.18+ 修复；声明式路由 API 零改动）、nanoid 3.3.17→3.3.18（postcss 传递依赖）；React 18 / recharts 2 保持（非安全项，大版本延期）；build 零告警 + dev 冒烟 + pytest 446 全绿 |
 | `4ef8668` | **C2 每租户独立 Key** | 决策一落地（方案①）：`auth.py` 双凭据体系（全局 admin Key + 租户 Key）——租户 Key 存储在 `config/tenant_keys.yaml`（0600+gitignore）或 `ECOMM_TENANT_KEYS` 引导；中间件重写 X-Tenant-ID 为密钥绑定租户（密钥即身份，防冒充）；管理端点仅 admin（租户 Key 403）；`POST /api/settings/tenant-keys` 分发/轮换/删除 + 设置页租户 Key 管理卡；env 供给的 Key 优先级最高且禁止经设置页修改（防改了不生效）；WS 双端点同权；+17 测试；决策二（平台连接器）经用户确认**不做**，文档关闭 |
-| *（未提交）* | **DeepSeek V4 模型升级** | 用户指出 DeepSeek 默认模型过时——`deepseek-chat`/`deepseek-reasoner` 为 V3 旧别名，官方当前为 `deepseek-v4-flash`/`deepseek-v4-pro`/`deepseek-v4-flash-vision-exp`。升级：text 默认→`deepseek/deepseek-v4-flash`（+v4-pro 备选）；**DeepSeek 新获视觉能力**——provider 补 `chat_with_vision`（OpenAI 兼容多模态）+ 注册表能力 `["text","vision"]` + vision 备选加 `deepseek/deepseek-v4-flash-vision-exp`；设置页目录更新为 v4 三型号。+5 测试 |
-| *（未提交）* | **前端美术升级（玻璃拟态+流动动效）** | 用户主导的视觉打磨：① 全局——动态极光背景（双光斑漂移）、玻璃卡片（半透明+backdrop-blur+顶部高光）、流动渐变标题/主按钮、状态点呼吸、`prefers-reduced-motion` 可访问性降级；② 仪表盘——统计卡分色左带+渐变数值、快捷入口 hover 抬升；③ 群聊直播——消息条改为"头像列+角色配色玻璃气泡"、输入框改磨砂圆角 composer+圆形渐变发送钮、**「正在输入」typing 指示器**（会话 running 态显示，三点弹跳动画，带 role=status）；④ 工作流画布——节点玻璃化+运行中脉冲光环。纯前端、零功能/测试影响 |
-| *（未提交）* | **生图占位防混淆 + 模型映射能力过滤** | 用户反馈"agent 看不到上传图"→ 实测诊断：分析员实为真实 DeepSeek 视觉结果，问题在生图环节（仅配 DeepSeek Key，DeepSeek 不支持生图 → 生图员回落 Mock 占位图，审查/合规基于占位图出模板）。修复：① 占位图打徽章+警示横幅+群聊消息提示；② 模型映射编辑器按能力过滤建议（封堵把 DeepSeek 视觉误配进 image 的坑，用户已在设置页误配过）；③ image 默认 seedream-5.0（用户选定即梦）、alternatives 修正为 dall-e-3/flux |
-| *（未提交）* | **一键启动程序** | 用户要求：`start.py`（启动后端+前端、端口复用检测、健康就绪等待、自动开浏览器、Ctrl+C 优雅停止、依赖预检、UTF-8/ANSI 控制台、自定义端口参数）+ 双击 `start.bat` + `stop.bat`（按端口清理）+ README 快速开始章节；+6 启动器单测；实测：首次启动/复用/停止三流程全通过 |
-| *（未提交）* | **测试计划 + P1 前端自动化** | 输出 `docs/test-plan.md`（9 层测试体系 + P1-P6 路线，现状盘点：前端零自动化/real 标记空置/CLI 零测试/无负载测试四大盲区）；P1 完成——Vitest 4 + RTL + jsdom 基建，63 例全绿：ChatPanel 30（msgPreview 全分支/状态/typing/插话回退/过滤器）、api.js 12（含 authHeaders 导出）、ModelMappingEditor 7（能力过滤建议）、Settings 8（租户 Key env 禁用态）、StatusBadge 6；CI 接入 npm test；顺带修复：jsdom 无 scrollIntoView 桩、按钮 aria-label 匹配 |
-| *（未提交）* | **P2 E2E 冒烟脚本** | `scripts/e2e_smoke.py` 七场景一键全链路（详见 test-plan.md P2），实测多次全绿：自动启动**确定性 Mock** 后端+前端（清空 Provider Key 防 secrets 注入真实 API——实测发现 MOCK_MODE=true 下 Agent 仍走真实 DeepSeek 导致行为随机/视觉卡 SVG）、S6 租户 Key 生命周期需 admin Key（缺失自动跳过）、Windows 清理用 ctypes 双栈 TCP 表（IPv6 行字段顺序坑）+ TerminateProcess 零残留；CI 新增 e2e job |
+| `5b0c7c0` | **DeepSeek V4 模型升级** | 用户指出 DeepSeek 默认模型过时——`deepseek-chat`/`deepseek-reasoner` 为 V3 旧别名，官方当前为 `deepseek-v4-flash`/`deepseek-v4-pro`/`deepseek-v4-flash-vision-exp`。升级：text 默认→`deepseek/deepseek-v4-flash`（+v4-pro 备选）；**DeepSeek 新获视觉能力**——provider 补 `chat_with_vision`（OpenAI 兼容多模态）+ 注册表能力 `["text","vision"]` + vision 备选加 `deepseek/deepseek-v4-flash-vision-exp`；设置页目录更新为 v4 三型号。+5 测试 |
+| `db9964b` | **前端美术升级（玻璃拟态+流动动效）** | 用户主导的视觉打磨：① 全局——动态极光背景（双光斑漂移）、玻璃卡片（半透明+backdrop-blur+顶部高光）、流动渐变标题/主按钮、状态点呼吸、`prefers-reduced-motion` 可访问性降级；② 仪表盘——统计卡分色左带+渐变数值、快捷入口 hover 抬升；③ 群聊直播——消息条改为"头像列+角色配色玻璃气泡"、输入框改磨砂圆角 composer+圆形渐变发送钮、**「正在输入」typing 指示器**（会话 running 态显示，三点弹跳动画，带 role=status）；④ 工作流画布——节点玻璃化+运行中脉冲光环。纯前端、零功能/测试影响 |
+| `7583530` | **生图占位防混淆 + 模型映射能力过滤** | 用户反馈"agent 看不到上传图"→ 实测诊断：分析员实为真实 DeepSeek 视觉结果，问题在生图环节（仅配 DeepSeek Key，DeepSeek 不支持生图 → 生图员回落 Mock 占位图，审查/合规基于占位图出模板）。修复：① 占位图打徽章+警示横幅+群聊消息提示；② 模型映射编辑器按能力过滤建议（封堵把 DeepSeek 视觉误配进 image 的坑，用户已在设置页误配过）；③ image 默认 seedream-5.0（用户选定即梦）、alternatives 修正为 dall-e-3/flux |
+| `89a90bc` | **一键启动程序** | 用户要求：`start.py`（启动后端+前端、端口复用检测、健康就绪等待、自动开浏览器、Ctrl+C 优雅停止、依赖预检、UTF-8/ANSI 控制台、自定义端口参数）+ 双击 `start.bat` + `stop.bat`（按端口清理）+ README 快速开始章节；+6 启动器单测；实测：首次启动/复用/停止三流程全通过 |
+| `9024da5` | **测试计划 + P1 前端自动化** | 输出 `docs/test-plan.md`（9 层测试体系 + P1-P6 路线，现状盘点：前端零自动化/real 标记空置/CLI 零测试/无负载测试四大盲区）；P1 完成——Vitest 4 + RTL + jsdom 基建，63 例全绿：ChatPanel 30（msgPreview 全分支/状态/typing/插话回退/过滤器）、api.js 12（含 authHeaders 导出）、ModelMappingEditor 7（能力过滤建议）、Settings 8（租户 Key env 禁用态）、StatusBadge 6；CI 接入 npm test；顺带修复：jsdom 无 scrollIntoView 桩、按钮 aria-label 匹配 |
+| `87b2775` | **P2 E2E 冒烟脚本** | `scripts/e2e_smoke.py` 七场景一键全链路（详见 test-plan.md P2），实测多次全绿：自动启动**确定性 Mock** 后端+前端（清空 Provider Key 防 secrets 注入真实 API——实测发现 MOCK_MODE=true 下 Agent 仍走真实 DeepSeek 导致行为随机/视觉卡 SVG）、S6 租户 Key 生命周期需 admin Key（缺失自动跳过）、Windows 清理用 ctypes 双栈 TCP 表（IPv6 行字段顺序坑）+ TerminateProcess 零残留；CI 新增 e2e job |
 
 ### 2.2 功能模块完成度
 
@@ -114,9 +116,13 @@
 
 ### 2.4 测试覆盖
 
-- **43 个测试文件**，**468 个测试通过**（`pytest` 全量 Mock Mode，无自有 RuntimeWarning）
+- **后端 44 个测试文件 / 468 个测试通过**（`pytest` 全量 Mock Mode，无自有 RuntimeWarning）
+- **前端 63 个测试通过**（Vitest 4 + RTL，`cd frontend && npm test`，2026-08-23 P1 新增）
+- **E2E 冒烟 7 场景**（`python scripts/e2e_smoke.py`，2026-08-23 P2 新增，CI 已接入）
 - C2 每租户独立 Key（决策 31）：+17 测试（`test_tenant_keys.py` 16 例——密钥绑定身份/跨租户隔离/管理端点权限/Key CRUD 与持久化/env 供给保护/WS；`test_auth.py` +1 管理面租户角色 403）
 - DeepSeek V4 模型升级：+5 测试（`test_deepseek.py`——V4 默认模型/JSON 模式/视觉多模态透传/API 错误）
+- P1 前端自动化：+63 测试（ChatPanel 30 / api.js 12 / ModelMappingEditor 7 / Settings 8 / StatusBadge 6）
+- P2 E2E 冒烟：S1 群聊 8 轮全产出物 / S2 SLA 自动审批 / S3 批量死信+报表+重跑 / S4 审计+记忆 / S5 设置闭环 / S6 租户 Key 生命周期 / S7 前端+代理
 - 时序加固：批量死信重跑测试改为 spy 断言（不再依赖轮询瞬时状态），全量运行多次无偶发失败
 - M5a 批量报表：聚合逻辑 3 测试（总览/模板/直方图/失败原因/租户隔离）+ 端点 3 测试（含路由防吞回归）
 - 四域审计第一轮（决策 18）：+34 测试（路径穿越 10 参数、租户 403/404、retry_step 重启、model_override 传播、SSRF 8 组、上传 413、批次上限、报表幽灵条目、熔断计 error dict、cancel 唤醒等）
@@ -265,6 +271,11 @@ src/
 | 29 | "继续" | M5b 审批 SLA 业务矩阵（决策 22）：engine `sla_matrix`（表达式规则顺序匹配 → default → 遗留 on_sla_timeout，超时事件携带命中策略）；`approval_matrix` 演示模板（评分≥75 自动通过/≥60 自动拒绝/默认继续等待）；前端 Dashboard 轮询失败横幅（审计 L6）；+7 测试，pytest 446 全绿 |
 | 30 | "按 progress.md 第 5.3 节遗留的开放决策选择下一项任务继续" | 选择「前端依赖核查」（C2 租户凭据绑定需用户选方案、平台级连接器需业务决策，均非自足任务）：npm audit 5 漏洞清零 —— vite 7.3.6（esbuild 漏洞）+ react-router-dom 7.18.2（6.x EOL，CVE 仅 v7.18+ 修复）+ nanoid 3.3.18；声明式路由 API 零改动；build 零告警、dev server 冒烟、pytest 446 全绿；React 19 / recharts 3 / Vite 8 大版本升级记录为后续候选 |
 | 31 | "决策1用第一个方案，决策2不需要打通" | 两项开放决策定案：**C2 租户凭据绑定 → 方案①每租户独立 Key**（实施完毕，见里程碑表）；**平台级连接器 → 明确不做**（文档关闭）。C2 实施要点：① 租户 Key 即身份——中间件把 X-Tenant-ID 重写为密钥绑定租户（`_set_scope_header` 改 ASGI scope，下游 FastAPI 按 scope 重建 Request 时生效），冒充租户头彻底封死；② 任一 Key 配置即强制鉴权（不再只看全局 Key），全未配置仍是开发模式开放（向后兼容）；③ 管理面按 `request.state.auth_role` 分权：admin 放行 / tenant 403 / 开发模式仅本机；④ WS 端点复用同一 `authenticate_api_key`，绑定身份覆盖 tenant 查询参数；⑤ 租户 Key 管理端点仅 admin，租户须已在 ECOMM_TENANTS 注册、Key 长度 16-256，轮换即时生效（旧 Key 立刻失效）；⑥ 环境变量供给的 Key 优先级最高、设置页禁止修改（冒烟实测暴露"改了不生效"陷阱后加固），UI 标注来源；⑦ 测试隔离教训——fixture teardown 在 monkeypatch 恢复环境前 reload 会把测试 Key 缓存进模块级状态导致后续模块全 401，改为 teardown 置 None 惰性重载；+17 测试，pytest 463 全绿 |
+| 32 | "你配置模型的地方deepseek的默认模型是否太落后或者缺少了" | DeepSeek 官方 API 文档核实：`deepseek-chat`/`deepseek-reasoner` 为 V3 旧别名，当前为 `deepseek-v4-flash`/`deepseek-v4-pro`/`deepseek-v4-flash-vision-exp`（多模态）；用户选定 text 默认用 `deepseek-v4-flash`。升级：models.yaml text 默认、provider 默认参数、`_MODEL_CATALOG`、**补 `chat_with_vision`（OpenAI 兼容多模态透传 + 总是尝试 JSON 解析）+ 注册表能力扩为 `["text","vision"]`**；+5 测试 |
+| 33 | "前端的美术效果怎么样，要不要优化一下" + "加上玻璃视觉，流动动效" + "群聊对话框/聊天条优化" + "加正在输入" | 前端美术升级（`db9964b`）：动态极光背景、玻璃卡片（backdrop-blur）、流动渐变标题/主按钮、统计卡分色、群聊"头像列+玻璃气泡"、磨砂 composer、**typing 指示器**、工作流节点运行脉冲；`prefers-reduced-motion` 降级。全程纯 CSS/布局，零功能影响 |
+| 34 | "上传图片后 agent 好像看不到图片" | 实测诊断（真实 DeepSeek 视觉调用复现）：分析员**确实看到图**（读出了德国护肝胶囊细节），问题在**生图环节**——DeepSeek 不支持生图，生图员回落 Mock 占位图，审查/合规基于占位图出模板。修复（`7583530`）：占位图徽章+警示横幅+群聊提示；模型映射编辑器按能力过滤建议（用户已误配过一次）；image 默认 seedream-5.0 |
+| 35 | "帮我做一个一键启动的程序" | `start.py` + `start.bat` + `stop.bat`（`89a90bc`）：一键拉起前后端、就绪等待、自动开浏览器、端口复用检测、Ctrl+C 优雅停止、依赖预检、自定义端口 |
+| 36 | "先设计一个测试计划" + "按计划继续" | 输出 `docs/test-plan.md`（9 层体系 + P1-P6）；P1 前端自动化（`9024da5`，Vitest 63 例 + CI）；P2 E2E 冒烟（`87b2775`，7 场景 + CI e2e job）。P2 实测三大教训：**MOCK_MODE=true 不等于确定性**（secrets.yaml 注入 Key 会让 Agent 走真实 API）→ 自动启动清空 Provider Key；租户 Key 轮换/删除仅 admin 可操作；Windows 多级孙进程 + IPv6 监听清理（ctypes 双栈 TCP 表 + TerminateProcess） |
 
 ### 5.2 关键决策点
 
@@ -349,18 +360,29 @@ M5a 批量报表的三个实现要点：① **数据源联表**：条目耗时/�
 - ~~MEDIUM/LOW 是否继续修~~ → ✅ 2026-08-16 已全部完成（决策 15），65/65 修复率 100%。
 - ~~**前端依赖核查**（code-review.md §六 第五轮候选的 `npm outdated`）~~ → ✅ 2026-08-22 完成：`npm audit` 5 漏洞清零（vite 7.3.6 修复 esbuild GHSA-67mh-4wv8-2f99、react-router-dom 7.18.2 修复 GHSA-wrjc-x8rr-h8h6 + GHSA-337j-9hxr-rhxg、nanoid 3.3.18 修复 GHSA-2v37-7h3g-55p8）。**React 19 / recharts 3 / Vite 8 大版本升级**列为后续候选：无安全收益、需回归成本（recharts 3 为破坏性重写）
 
-> ⚠️ **2026-08-22 快照**：四域审计 4 CRITICAL + 10 HIGH（决策 18）+ 二/三/四轮 MEDIUM/LOW 技术债（决策 19-21）+ M5b 审批矩阵（决策 22）+ 前端依赖核查 + C2 每租户独立 Key + DeepSeek V4 模型升级全部完成，测试 **468 全绿**、前端 build 零告警（vite 7 / react-router 7）、`npm audit` 0 漏洞、CI 已配置。**5.3 节遗留开放决策全部关闭**（C2 已按方案①实施；平台连接器经用户确认不做）。后续候选：React 19 / recharts 3 / Vite 8 大版本升级（无安全收益，暂缓）。
+> ⚠️ **2026-08-23 快照**：四域审计 65/65（决策 18-21）+ M5b 审批矩阵（决策 22）+ 前端依赖核查 + C2 每租户独立 Key + DeepSeek V4 升级 + 前端美术升级 + 一键启动 + **测试计划 P1（前端 63 例）/ P2（E2E 7 场景）** 全部完成。**测试资产：后端 pytest 468 全绿 + 前端 Vitest 63 全绿 + E2E 冒烟 7 场景全绿**；前端 build 零告警（vite 7 / react-router 7）、`npm audit` 0 漏洞、CI 四道门禁（pytest / ruff / vitest+build / e2e）、24 笔提交工作树干净。**5.3 节遗留开放决策全部关闭**。后续候选：test-plan.md 的 **P3 后端补缺**（CLI 测试/SQLite 韧性/OpenAPI 快照）→ P4 真实 API 套件 → P5 安全+性能 → P6 CI 补强；React 19 / recharts 3 / Vite 8 大版本升级（无安全收益，暂缓）。
+
+- **测试计划后续阶段（P3-P6，当前主待办）**——见 `docs/test-plan.md`：P3 后端补缺（CLI 测试 / SQLite 韧性 / OpenAPI 快照 / 错误响应契约）、P4 真实 API 套件（DeepSeek/Seedream 真实调用，需 Key）、P5 安全+性能（上传模糊测试 / slow 负载套件）、P6 CI 补强（Docker 构建 / npm audit 门禁）。**P1（前端 63 例）/ P2（E2E 7 场景）已完成**
 
 ---
 
 ## 6. 快速验证命令
 
 ```bash
-# 全量测试（Mock Mode）
+# 后端全量测试（Mock Mode）
 pytest
+
+# 前端单元/组件测试
+cd frontend && npm test
+
+# E2E 冒烟（自动起停确定性 Mock 服务，7 场景）
+python scripts/e2e_smoke.py
 
 # 前端构建
 cd frontend && npm run build
+
+# 一键启动前后端（Windows 可双击 start.bat；停止用 stop.bat）
+python start.py
 
 # 后端启动（Mock Mode）
 uvicorn src.api.main:app --reload --port 8000
@@ -379,4 +401,5 @@ docker-compose -f deploy/docker-compose.yml up -d
 | 代码审查报告 | `docs/code-review.md` | 65 个审计问题的完整清单与修复优先级（§五：全部复查通过） |
 | 模块文档 | `docs/modules/*.md` | 16 篇：核心 8 篇 + workflow/auth/tenant/logging/storage/harness-extended/ab-testing/image-preprocessor，覆盖全部源文件 |
 | **Workflow 设计** | `docs/workflow-design.md` | 编排层设计（模板 DSL / 状态机 / 批量 / 画布），借鉴 OiiOii 范式，M1-M5b 已实施 |
+| **测试计划** | `docs/test-plan.md` | 9 层测试体系 + P1-P6 路线（P1 前端自动化 ✅ / P2 E2E 冒烟 ✅，P3-P6 待实施） |
 | 本状态总览 | `docs/progress.md` | 进度 / 计划 / 思路 / 决策（本文档） |
