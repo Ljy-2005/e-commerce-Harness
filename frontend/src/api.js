@@ -11,7 +11,7 @@ export function setStoredApiKey(key) {
   else localStorage.removeItem('ecomm_api_key')
 }
 
-function authHeaders(extra = {}) {
+export function authHeaders(extra = {}) {
   const key = getStoredApiKey()
   if (!key) return extra
   return { ...extra, 'X-API-Key': key }

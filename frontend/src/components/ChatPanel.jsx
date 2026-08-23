@@ -16,11 +16,11 @@ const SENDER_ICONS = {
   'A/B 测试': '🔬',
 }
 
-function senderIcon(name) {
+export function senderIcon(name) {
   return SENDER_ICONS[name] || '🤖'
 }
 
-function msgPreview(content) {
+export function msgPreview(content) {
   if (!content) return ''
   if (content.error) return `❌ ${content.error}`
   if (content.category) return `品类: ${content.category}`
