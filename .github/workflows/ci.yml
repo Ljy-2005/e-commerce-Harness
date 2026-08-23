@@ -49,3 +49,31 @@ jobs:
       - name: Production build
         run: npm run build
         working-directory: frontend
+
+  e2e:
+    name: E2E smoke (Mock, 7 scenarios)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install backend deps
+        run: pip install -e ".[dev]"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend deps
+        run: npm ci
+        working-directory: frontend
+
+      - name: E2E smoke（自启确定性 Mock 服务，跑完自停）
+        run: python scripts/e2e_smoke.py

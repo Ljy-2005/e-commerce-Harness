@@ -75,6 +75,7 @@
 | *（未提交）* | **生图占位防混淆 + 模型映射能力过滤** | 用户反馈"agent 看不到上传图"→ 实测诊断：分析员实为真实 DeepSeek 视觉结果，问题在生图环节（仅配 DeepSeek Key，DeepSeek 不支持生图 → 生图员回落 Mock 占位图，审查/合规基于占位图出模板）。修复：① 占位图打徽章+警示横幅+群聊消息提示；② 模型映射编辑器按能力过滤建议（封堵把 DeepSeek 视觉误配进 image 的坑，用户已在设置页误配过）；③ image 默认 seedream-5.0（用户选定即梦）、alternatives 修正为 dall-e-3/flux |
 | *（未提交）* | **一键启动程序** | 用户要求：`start.py`（启动后端+前端、端口复用检测、健康就绪等待、自动开浏览器、Ctrl+C 优雅停止、依赖预检、UTF-8/ANSI 控制台、自定义端口参数）+ 双击 `start.bat` + `stop.bat`（按端口清理）+ README 快速开始章节；+6 启动器单测；实测：首次启动/复用/停止三流程全通过 |
 | *（未提交）* | **测试计划 + P1 前端自动化** | 输出 `docs/test-plan.md`（9 层测试体系 + P1-P6 路线，现状盘点：前端零自动化/real 标记空置/CLI 零测试/无负载测试四大盲区）；P1 完成——Vitest 4 + RTL + jsdom 基建，63 例全绿：ChatPanel 30（msgPreview 全分支/状态/typing/插话回退/过滤器）、api.js 12（含 authHeaders 导出）、ModelMappingEditor 7（能力过滤建议）、Settings 8（租户 Key env 禁用态）、StatusBadge 6；CI 接入 npm test；顺带修复：jsdom 无 scrollIntoView 桩、按钮 aria-label 匹配 |
+| *（未提交）* | **P2 E2E 冒烟脚本** | `scripts/e2e_smoke.py` 七场景一键全链路（详见 test-plan.md P2），实测多次全绿：自动启动**确定性 Mock** 后端+前端（清空 Provider Key 防 secrets 注入真实 API——实测发现 MOCK_MODE=true 下 Agent 仍走真实 DeepSeek 导致行为随机/视觉卡 SVG）、S6 租户 Key 生命周期需 admin Key（缺失自动跳过）、Windows 清理用 ctypes 双栈 TCP 表（IPv6 行字段顺序坑）+ TerminateProcess 零残留；CI 新增 e2e job |
 
 ### 2.2 功能模块完成度
 

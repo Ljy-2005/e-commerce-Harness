@@ -147,7 +147,7 @@
 | 阶段 | 内容 | 预估新增用例 | 优先级 |
 |------|------|-------------|--------|
 | **P1 前端自动化基建** | ✅ 2026-08-23 完成：Vitest 4 + @testing-library/react + jsdom 基建（vitest.config / setup 含 scrollIntoView 桩）；ChatPanel 30 例（msgPreview 全分支/渲染状态/typing/插话回退/过滤器）、api.js 12 例（localStorage/authHeaders/wsUrl/request 错误映射/请求体）、ModelMappingEditor 7 例（能力过滤建议/保存 payload）、Settings 8 例（租户 Key env 禁用态/创建失败/保存流）、StatusBadge 6 例；共 63 例全绿，CI 接入 npm test | ~45 | 🔴 ✅ |
-| **P2 E2E 冒烟脚本** | `scripts/e2e_smoke.py` 七个场景 + 接入 CI（启动服务→跑→停） | 1 脚本/7 场景 | 🔴 高 |
+| **P2 E2E 冒烟脚本** | ✅ 2026-08-23 完成：`scripts/e2e_smoke.py` 七场景一键全链路（S1 群聊 8 轮全产出物 / S2 approval_matrix SLA 自动审批 / S3 批量 4+1 死信与报表与重跑 / S4 审计租户字段+记忆 / S5 模型映射闭环 / S6 租户 Key 全生命周期 / S7 前端+代理），自动启动确定性 Mock 服务、跑完自停（ctypes 双栈端口清扫零残留）；CI 新增 e2e job。实施教训：① **MOCK_MODE=true 不等于确定性**——secrets.yaml 注入的 Key 会让 Agent 走真实 API（协调器行为随机、视觉读 SVG 卡死），自动启动必须清空 Provider Key；② 无管理 Key 时租户 Key 轮换/删除只能走 admin（S6 需 ECOMM_API_KEY，缺失自动跳过）；③ Windows 清理：npm→cmd→node 多级孙进程 + vite 绑 IPv6 ::1，需 ctypes GetExtendedTcpTable 双栈查询（IPv6 行 dwState 在 dwOwningPid 前，结构体顺序坑）+ TerminateProcess | 1 脚本/7 场景 | 🔴 ✅ |
 | **P3 后端补缺** | CLI 测试 + SQLite 韧性 + OpenAPI 快照 + 错误契约 | ~25 | 🟡 中 |
 | **P4 真实 API 套件** | real 标记套件（DeepSeek/Seedream）+ CI manual job | ~10 | 🟡 中（需 Key） |
 | **P5 安全+性能** | 上传模糊/头伪造/表达式注入 + slow 负载套件 | ~30 | 🟢 中低 |
