@@ -1,31 +1,64 @@
+# ─────────────────────────────────────────────────────────────
+# E-Commerce Harness — 忽略规则
+# 注意：本文件必须保持 UTF-8 编码（改了会变乱码）
+# ─────────────────────────────────────────────────────────────
+
+# ── Python ──
 __pycache__/
 *.py[cod]
 *.egg-info/
-dist/
-.env
 .venv/
 venv/
 .pytest_cache/
 .ruff_cache/
-*.log
-output/
-data/
+
+# ── Node / 前端构建产物 ──
 node_modules/
+dist/
 frontend/dist/
-config/secrets.yaml
 
-# Office ��ʱ���ļ�
-~$*
-config/tenant_keys.yaml
+# ── 运行期数据与产物（含真实会话、审计、生成图，体积大且可能含业务数据）──
+data/
+output/
+*.log
 
-# pytest-cov artifacts
+# ── pytest-cov 产物 ──
 .coverage
 .coverage.*
 htmlcov/
 
-# Provider 端点/模型覆盖（含私有端点，本地配置）
+# ── 环境变量 ──
+.env
+.env.*
+!.env.example
+
+# ── 密钥 / 凭据文件 ──
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+config/secrets.yaml
+config/tenant_keys.yaml
+
+# ── 本地私有配置（含私有端点与模型覆盖）──
 config/providers.yaml
 config/output.yaml
 config/custom_providers.yaml
 config/chat.yaml
 config/pricing.yaml
+config/*.local.yaml
+
+# ── 个人信息文件（本仓库公开，禁止入库）──
+*.docx
+*.doc
+*.pdf
+*简历*
+*resume*
+*证件*
+*身份证*
+*预览*
+
+# ── Office 临时锁文件 ──
+~$*

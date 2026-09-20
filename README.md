@@ -36,6 +36,8 @@ python start.py --frontend-only # 只启动前端
 - 服务已在运行时自动复用，不重复启动；就绪前显示等待进度
 - 停止：双击 `stop.bat`（Windows），或在启动窗口按 `Ctrl+C`
 - 首次使用前安装依赖：`pip install -e ".[dev]"` + `cd frontend && npm install`
+  - 该命令会**自动安装敏感内容防护 git 钩子**；若钩子丢失，手动补装：`python scripts/setup_hooks.py`
+  - 注意：本项目要求 **Python ≥ 3.12**，版本不符时 `pip install -e` 会被拒绝
 
 ### 手动启动（开发模式）
 
@@ -99,3 +101,24 @@ pytest -m real            # 需要真实 API Key
 ```bash
 docker-compose -f deploy/docker-compose.yml up -d
 ```
+
+## 敏感内容防护
+
+仓库带有四层防护，防止 API Key 与私人文件被提交或推送：
+
+| 层 | 机制 | 说明 |
+|---|---|---|
+| 1 | `.gitignore` | 忽略 `config/secrets.yaml`、`.env`、`*.pem`、简历类文件等 |
+| 2 | `pre-commit` 钩子 | 提交前扫描暂存区，命中即阻止 |
+| 3 | `pre-push` 钩子 | 推送前再查一次，并检查未跟踪文件 |
+| 4 | CI + GitHub 推送保护 | 服务端兜底，本地 `--no-verify` 绕过也能拦住 |
+
+手动体检（可选）：
+
+```bash
+python scripts/check_secrets.py --tree        # 扫描全部已跟踪文件
+python scripts/check_secrets.py --untracked   # 再加未跟踪文件
+python scripts/check_secrets.py --history     # 扫描全部提交历史（较慢）
+```
+
+误报处理与泄漏应急流程见 [`.github/SECURITY.md`](.github/SECURITY.md)。

@@ -1,0 +1,38 @@
+#!/bin/sh
+# pre-commit —— 阻止敏感内容进入提交
+#
+# 由 scripts/setup_hooks.py 安装到 .git/hooks/。
+# 逃生舱：git commit --no-verify
+# 误报处理见 .github/SECURITY.md
+
+# Windows 控制台默认 GBK，避免中文/符号乱码
+PYTHONIOENCODING=utf-8
+export PYTHONIOENCODING
+
+# 定位仓库根（钩子从 .git/hooks/ 执行时 cwd 即仓库根，但仍显式推导以防万一）
+root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+cd "$root" || exit 0
+
+if [ ! -f scripts/check_secrets.py ]; then
+    exit 0   # 扫描器不存在时不阻塞开发
+fi
+
+if command -v python >/dev/null 2>&1; then
+    PY=python
+elif command -v python3 >/dev/null 2>&1; then
+    PY=python3
+else
+    echo "pre-commit: 未找到 python，跳过敏感内容扫描" >&2
+    echo "            （安装 Python 后将自动恢复检查）" >&2
+    exit 0
+fi
+
+"$PY" scripts/check_secrets.py
+status=$?
+
+if [ $status -ne 0 ]; then
+    echo "" >&2
+    echo "提交已被阻止。确认无误后可用：git commit --no-verify" >&2
+fi
+
+exit $status

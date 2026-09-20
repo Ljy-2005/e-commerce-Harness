@@ -93,3 +93,34 @@ jobs:
 
       - name: E2E smoke（自启确定性 Mock 服务，跑完自停）
         run: python scripts/e2e_smoke.py
+
+  # 敏感内容防护（第 4 层）：本地钩子被 --no-verify 绕过时，由 CI 兜底
+  secrets:
+    name: Secrets guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # gitleaks 需要完整历史
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # 项目自带的规则扫描（文件名 + 高置信度内容特征）
+      - name: Scan tracked files (scripts/check_secrets.py)
+        run: python scripts/check_secrets.py --ci
+
+      # 钩子安装器自检：防止 setup_hooks.py 悄悄失效
+      - name: Verify hook installer works
+        run: |
+          python scripts/setup_hooks.py
+          python scripts/setup_hooks.py --check
+
+      # gitleaks 补位：熵检测覆盖未知服务商的密钥形态
+      - name: gitleaks (full history)
+        run: |
+          GITLEAKS_VERSION=8.24.0
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz gitleaks
+          ./gitleaks detect --source . --redact --exit-code 1 --verbose

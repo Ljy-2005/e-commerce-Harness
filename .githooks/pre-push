@@ -1,0 +1,46 @@
+#!/bin/sh
+# pre-push —— 推送前最后一道本地防线
+#
+# 与 pre-commit 的区别：
+#   1. 除了暂存区，还检查未跟踪文件（推送的是提交，但顺手提醒未入库的敏感文件）
+#   2. 措辞升级：一旦推送到远端，即使随后删除也仍留在历史里，必须视为已泄漏
+#
+# 由 scripts/setup_hooks.py 安装到 .git/hooks/。
+# 逃生舱：git push --no-verify
+
+PYTHONIOENCODING=utf-8
+export PYTHONIOENCODING
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+cd "$root" || exit 0
+
+if [ ! -f scripts/check_secrets.py ]; then
+    exit 0
+fi
+
+if command -v python >/dev/null 2>&1; then
+    PY=python
+elif command -v python3 >/dev/null 2>&1; then
+    PY=python3
+else
+    echo "pre-push: 未找到 python，跳过敏感内容扫描" >&2
+    exit 0
+fi
+
+"$PY" scripts/check_secrets.py --untracked
+status=$?
+
+if [ $status -ne 0 ]; then
+    echo "" >&2
+    echo "════════════════════════════════════════════════════════════" >&2
+    echo " 推送已被阻止。" >&2
+    echo "" >&2
+    echo " 注意：一旦推送到 GitHub，即使马上删除，内容仍会留在" >&2
+    echo " 提交历史与 GitHub 的缓存中，必须按「已泄漏」处理——" >&2
+    echo " 去服务商控制台轮换该密钥。" >&2
+    echo "" >&2
+    echo " 确认无害可用：git push --no-verify" >&2
+    echo "════════════════════════════════════════════════════════════" >&2
+fi
+
+exit $status
