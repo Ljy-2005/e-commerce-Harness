@@ -2,7 +2,7 @@ name: 生图员
 description: 调用图像生成 API 将提示词转化为商品展示图，支持多模型路由和自动 fallback
 version: "1.0.0"
 requires: [image]
-timeout_ms: 60000
+timeout_ms: 420000
 retry:
   max_retries: 2
   backoff: exponential

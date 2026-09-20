@@ -83,6 +83,43 @@ class TestProviderInstantiation:
         assert "image" in p.capabilities
 
 
+class TestRouteInjectionForPricing:
+    """注册表必须把**路由 id** 注入 Provider —— 定价按「路由/模型」查
+
+    没有它，同一模型在不同服务商（官方 / 中转 / 方舟）会被张冠李戴地按同一个价算，
+    而且查不到时会去查"任意路由"条目。
+    """
+
+    @pytest.fixture(autouse=True)
+    def _clear_keys(self, monkeypatch):
+        for k in _ALL_KEY_ENVS + ("ARK_API_KEY", "ARK_BASE_URL"):
+            monkeypatch.delenv(k, raising=False)
+
+    def test_ark_image_provider_gets_route(self, monkeypatch):
+        monkeypatch.setenv("ARK_API_KEY", "ark-test")
+        reg = ProviderRegistry()
+        provider = reg.get_image("ark")
+        assert provider is not None
+        assert provider.route == "ark"
+        # 未标定 → 不编价（方舟 Seedream 没有可核对的公开价目表）
+        assert provider._estimate_cost("doubao-seedream-5-0-260128", "2048x2048") is None
+
+    def test_openai_image_provider_gets_route(self, monkeypatch):
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        reg = ProviderRegistry()
+        provider = reg.get_image("openai")
+        assert provider.route == "openai"
+        assert provider._estimate_cost("dall-e-3", "1024x1024") == 0.04
+
+    def test_llm_provider_gets_route(self, monkeypatch):
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        monkeypatch.setenv("DEEPSEEK_API_KEY", "ds-test")
+        reg = ProviderRegistry()
+        assert reg.get_llm("openai").route == "openai"
+        # 内置专用实现（deepseek/qwen/anthropic）同样要注入
+        assert reg.get_llm("deepseek").route == "deepseek"
+
+
 class TestProviderNoKeyError:
     """测试无 Key 时返回明确错误而非崩溃"""
 
@@ -158,3 +195,115 @@ class TestSeedreamVolcSigning:
         assert headers["Authorization"].startswith("HMAC-SHA256")
         assert "X-Date" in headers
         assert "X-Content-Sha256" in headers
+
+
+class TestRouteParamInjection:
+    """路由参数注入（A30/A32）：尺寸与输出预算必须从路由表/配置走到 Provider 实例"""
+
+    @pytest.fixture(autouse=True)
+    def _clear_keys(self, monkeypatch):
+        for k in _ALL_KEY_ENVS:
+            monkeypatch.delenv(k, raising=False)
+
+    def test_ark_image_provider_gets_route_default_size(self, monkeypatch):
+        monkeypatch.setenv("ARK_API_KEY", "ark-test")
+        provider = ProviderRegistry().get_image("ark")
+        assert provider is not None
+        assert provider.default_size == "2048x2048", "方舟 Seedream 5.0 低于 3,686,400 像素直接 400"
+
+    def test_dall_e_keeps_1024(self, monkeypatch):
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        provider = ProviderRegistry().get_image("openai")
+        assert provider.default_size == "1024x1024"
+
+    def test_models_yaml_size_beats_route_default(self, monkeypatch):
+        monkeypatch.setenv("ARK_API_KEY", "ark-test")
+        import src.core.config as cfg
+        original = cfg.load_models_config
+        monkeypatch.setattr(cfg, "load_models_config",
+                            lambda: {"capabilities": {"image": {"size": "4096x4096"}}})
+        provider = ProviderRegistry().get_image("ark")
+        # 路由默认仍来自路由表，实际生效值由 resolve_image_size 决定（config 优先）
+        from src.core.config import resolve_image_size
+        assert resolve_image_size(provider.default_size) == "4096x4096"
+        monkeypatch.setattr(cfg, "load_models_config", original)
+
+    def test_deepseek_max_tokens_from_route_table(self, monkeypatch):
+        monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-ds")
+        provider = ProviderRegistry().get_llm("deepseek")
+        assert provider.max_tokens == 16384, "推理模型 4096 会被思考 token 吃光"
+
+    def test_providers_yaml_overrides_max_tokens(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-ds")
+        import src.core.config as cfg
+        monkeypatch.setattr(cfg, "PROVIDER_CONFIG_REL", str(tmp_path / "providers.yaml"))
+        (tmp_path / "providers.yaml").write_text(
+            "deepseek:\n  max_tokens: 8192\n", encoding="utf-8")
+        provider = ProviderRegistry().get_llm("deepseek")
+        assert provider.max_tokens == 8192
+
+    def test_invalid_max_tokens_override_ignored(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-ds")
+        import src.core.config as cfg
+        monkeypatch.setattr(cfg, "PROVIDER_CONFIG_REL", str(tmp_path / "providers.yaml"))
+        (tmp_path / "providers.yaml").write_text(
+            "deepseek:\n  max_tokens: -5\n", encoding="utf-8")
+        assert ProviderRegistry().get_llm("deepseek").max_tokens == 16384
+
+
+class _RecordingLogger:
+    """记录日志调用（项目 logger 不向 root 传播，caplog 抓不到）"""
+
+    def __init__(self):
+        self.warnings: list[str] = []
+
+    def warning(self, message, *args, **kwargs):
+        self.warnings.append(str(message) % args if args else str(message))
+
+
+class TestOverrideMismatchWarning:
+    """A41：覆盖键与 requires 不匹配时留日志（用户"配了没反应"的最常见原因）"""
+
+    def _registry(self, monkeypatch, overrides):
+        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+        reg = ProviderRegistry()
+        reg._models_config = {"capabilities": {"text": {"default": "mock"}},
+                              "agent_overrides": overrides}
+        return reg
+
+    def _patch_logger(self, monkeypatch):
+        import src.core.logging_config as logging_config
+        recorder = _RecordingLogger()
+        monkeypatch.setattr(logging_config, "get_logger", lambda name: recorder)
+        return recorder
+
+    def test_mismatched_capability_logs_warning(self, monkeypatch):
+        import src.providers as providers_mod
+        providers_mod._WARNED_OVERRIDE_MISMATCH.clear()
+        recorder = self._patch_logger(monkeypatch)
+        reg = self._registry(monkeypatch, {"审查员": {"text": "deepseek/deepseek-v4-flash"}})
+
+        reg.resolve(["vision"], agent_name="审查员")
+
+        assert any("覆盖不生效" in w for w in recorder.warnings), recorder.warnings
+
+    def test_warning_is_only_logged_once(self, monkeypatch):
+        import src.providers as providers_mod
+        providers_mod._WARNED_OVERRIDE_MISMATCH.clear()
+        recorder = self._patch_logger(monkeypatch)
+        reg = self._registry(monkeypatch, {"审查员": {"text": "deepseek/deepseek-v4-flash"}})
+
+        reg.resolve(["vision"], agent_name="审查员")
+        reg.resolve(["vision"], agent_name="审查员")
+
+        assert len(recorder.warnings) == 1, "同一组合不应每次 resolve 都刷屏"
+
+    def test_matching_capability_does_not_warn(self, monkeypatch):
+        import src.providers as providers_mod
+        providers_mod._WARNED_OVERRIDE_MISMATCH.clear()
+        recorder = self._patch_logger(monkeypatch)
+        reg = self._registry(monkeypatch, {"审查员": {"vision": "mock/x"}})
+
+        reg.resolve(["vision"], agent_name="审查员")
+
+        assert recorder.warnings == []

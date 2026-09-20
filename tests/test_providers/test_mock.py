@@ -6,22 +6,29 @@ from src.providers.mock import MockLLMProvider, MockImageProvider
 
 class TestMockLLMProvider:
     @pytest.mark.asyncio
-    async def test_chat_returns_analysis_for_keywords(self):
+    async def test_chat_returns_neutral_analysis_for_keywords(self):
+        """演示数据必须"中性 + 显式标记"：不得写死具体商品事实（用户实测质疑"会不会串到别的牌子"）"""
         p = MockLLMProvider()
         result = await p.chat([
             {"role": "system", "content": "分析商品"},
         ])
         assert "content" in result
         content = result["content"]
-        assert content.get("category") == "保健品"
+        assert content.get("is_mock") is True
+        assert content["product_identity"]["source"] == "mock"
+        assert content["product_identity"]["brand"] == ""
+        for forbidden in ("水飞蓟", "护肝", "蓝帽", "解酒"):
+            assert forbidden not in str(content), f"演示数据里仍有具体商品事实：{forbidden}"
 
     @pytest.mark.asyncio
-    async def test_chat_with_vision_returns_analysis(self):
+    async def test_chat_with_vision_returns_neutral_analysis(self):
         p = MockLLMProvider()
         result = await p.chat_with_vision([
             {"role": "user", "content": [{"type": "text", "text": "分析这张保健品图片"}]},
         ])
-        assert result["content"]["category"] == "保健品"
+        content = result["content"]
+        assert content["is_mock"] is True
+        assert "未识别" in content["category"]
 
     @pytest.mark.asyncio
     async def test_chat_returns_review_for_keywords(self):

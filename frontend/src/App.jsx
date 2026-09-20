@@ -13,6 +13,7 @@ const Agents = lazy(() => import('./pages/Agents'))
 const Settings = lazy(() => import('./pages/Settings'))
 const Audit = lazy(() => import('./pages/Audit'))
 const Memory = lazy(() => import('./pages/Memory'))
+const Styles = lazy(() => import('./pages/Styles'))
 
 const NAV = [
   { to: '/', icon: '📊', label: '仪表盘', end: true },
@@ -23,6 +24,7 @@ const NAV = [
   { to: '/settings', icon: '⚙️', label: '系统设置' },
   { to: '/audit', icon: '📜', label: '审计日志' },
   { to: '/memory', icon: '🧠', label: '记忆库' },
+  { to: '/styles', icon: '🎨', label: '风格词库' },
 ]
 
 function PageFallback() {
@@ -64,6 +66,7 @@ export default function App() {
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/audit" element={<Audit />} />
                 <Route path="/memory" element={<Memory />} />
+                <Route path="/styles" element={<Styles />} />
                 <Route path="*" element={<Dashboard />} />
               </Routes>
             </Suspense>

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { getHealth, getAdminStatus, getSessions } from '../api'
+import { formatCost, costTitle, sessionCostMeta } from '../cost'
 
 const CIRCUIT_STATE_BADGE = {
   closed: 'badge-ok',
@@ -165,7 +166,7 @@ export default function Dashboard() {
                       </td>
                       <td><StatusBadge status={s.status} /></td>
                       <td className="text-sm">{s.turn_count}</td>
-                      <td className="text-sm">${(s.cost_so_far || 0).toFixed(4)}</td>
+                      <td className="text-sm" title={costTitle(sessionCostMeta(s))}>{formatCost(s.cost_so_far, sessionCostMeta(s))}</td>
                     </tr>
                   ))}
                 </tbody>

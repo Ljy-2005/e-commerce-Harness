@@ -17,6 +17,12 @@ class _FakeResponse:
     def json(self):
         return self._data
 
+    @property
+    def text(self) -> str:
+        """真实 httpx.Response 有 .text —— Provider 错误串会带上上游原文（便于定位故障）"""
+        import json as _json
+        return _json.dumps(self._data, ensure_ascii=False)
+
 
 class _FakeAsyncClient:
     """替换 httpx.AsyncClient：捕获请求，返回预设响应"""
@@ -128,7 +134,19 @@ class TestOpenAILLMProvider:
         openai_http["response"] = _FakeResponse(401, {"error": {"message": "bad key"}})
         p = OpenAILLMProvider()
         result = await p.chat([{"role": "user", "content": "hi"}])
-        assert result["error"] == "OpenAI API error: 401"
+        # 错误串含：状态码 + 生效端点 + 上游原文（配错 Key/端点/模型时可直接定位）
+        assert result["error"].startswith("OpenAI API error: 401")
+        assert "https://api.openai.com/v1" in result["error"]
+        assert "bad key" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_error_message_masks_api_key(self, openai_http, monkeypatch):
+        """上游若回显请求信息，密钥必须被遮蔽（绝不进日志/界面）"""
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-secret-xyz")
+        openai_http["response"] = _FakeResponse(400, {"error": {"message": "key sk-secret-xyz invalid"}})
+        result = await OpenAILLMProvider().chat([{"role": "user", "content": "hi"}])
+        assert "sk-secret-xyz" not in result["error"]
+        assert "***" in result["error"]
 
     @pytest.mark.asyncio
     async def test_chat_with_vision(self, openai_http, monkeypatch):
@@ -152,7 +170,8 @@ class TestOpenAILLMProvider:
         openai_http["response"] = _FakeResponse(500, {})
         p = OpenAILLMProvider()
         result = await p.chat_with_vision([{"role": "user", "content": "hi"}])
-        assert result["error"] == "OpenAI API error: 500"
+        assert result["error"].startswith("OpenAI API error: 500")
+        assert "https://api.openai.com/v1" in result["error"]
 
     def test_estimate_cost_known_models(self):
         p = OpenAILLMProvider()
@@ -161,10 +180,48 @@ class TestOpenAILLMProvider:
         assert p._estimate_cost("gpt-4.1", 0, 1_000_000) == 8.00
         assert p._estimate_cost("o4-mini", 1_000_000, 1_000_000) == 5.50
 
-    def test_estimate_cost_unknown_model_falls_back(self):
+    def test_estimate_cost_unknown_model_is_none(self):
+        """未标定的模型 → `None`（**不回落 gpt-4o 的 2.50/10.00 价**）
+
+        此前 `prices.get(model, (2.50, 10.00))` 把任何未知模型（方舟豆包、自定义
+        服务商的新模型）都按 gpt-4o 计价 —— 正是用户说的"误导"。
+        """
         p = OpenAILLMProvider()
-        assert p._estimate_cost("gpt-99", 1_000_000, 0) == 2.50
-        assert p._estimate_cost("gpt-99", 0, 1_000_000) == 10.00
+        assert p._estimate_cost("gpt-99", 1_000_000, 0) is None
+        assert p._estimate_cost("doubao-seed-2-1-pro-260628", 1_000_000, 0) is None
+
+    def test_estimate_cost_user_price_wins(self, monkeypatch):
+        """用户在 `config/pricing.yaml` 填了价 → 立刻按它算（设置页可改的真实含义）"""
+        from src.harness import pricing
+        from src.harness.pricing import save_prices
+
+        path = pricing.pricing_path()
+        original = path.read_bytes() if path.exists() else None
+        try:
+            save_prices({"gpt-99": {"unit": "1M_tokens", "in": 0.5, "out": 1.5,
+                                    "updated_at": "2026-09-18"}})
+            p = OpenAILLMProvider()
+            assert p._estimate_cost("gpt-99", 1_000_000, 1_000_000) == 2.0
+        finally:
+            if original is None:
+                path.unlink(missing_ok=True)
+            else:
+                path.write_bytes(original)
+            pricing._reset_cache()
+
+    @pytest.mark.asyncio
+    async def test_chat_unknown_model_reports_null_cost(self, openai_http, monkeypatch):
+        """返回 `cost_usd: None`（键必须在，值为 null）—— 而不是缺键或 0"""
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        openai_http["response"] = _FakeResponse(200, {
+            "choices": [{"message": {"content": "ok"}}],
+            "usage": {"total_tokens": 30, "prompt_tokens": 10, "completion_tokens": 20},
+        })
+        result = await OpenAILLMProvider().chat(
+            [{"role": "user", "content": "hi"}], model="gpt-99")
+        assert "cost_usd" in result
+        assert result["cost_usd"] is None
+        assert result["tokens_used"] == 30, "用量是事实，必须照报"
 
 
 # ── OpenAIImageProvider ──
@@ -184,6 +241,8 @@ class TestOpenAIImageProvider:
             "data": [{"url": "https://img.example.com/1.png", "revised_prompt": "revised prompt"}],
         })
         p = OpenAIImageProvider()
+        # 注册表在真实链路里会注入 route（价格按「路由/模型」查）
+        p.route = "openai"
         result = await p.generate("a bottle on white background", size="1024x1024", model="dall-e-3")
         assert result["image_url"] == "https://img.example.com/1.png"
         assert result["revised_prompt"] == "revised prompt"
@@ -202,7 +261,8 @@ class TestOpenAIImageProvider:
         openai_http["response"] = _FakeResponse(400, {})
         p = OpenAIImageProvider()
         result = await p.generate("x")
-        assert result["error"] == "DALL-E API error: 400"
+        assert result["error"].startswith("DALL-E API error: 400")
+        assert "https://api.openai.com/v1" in result["error"]
 
     @pytest.mark.asyncio
     async def test_generate_negative_prompt_warns(self, openai_http, monkeypatch):
@@ -216,9 +276,33 @@ class TestOpenAIImageProvider:
         # 请求体中不携带 negative_prompt
         assert "negative_prompt" not in openai_http["client"].requests[0]["json"]
 
-    def test_estimate_cost_sizes(self):
-        p = OpenAIImageProvider()
-        assert p._estimate_cost("1024x1024") == 0.04
-        assert p._estimate_cost("1024x1792") == 0.08
-        assert p._estimate_cost("1792x1024") == 0.08
-        assert p._estimate_cost("unknown-size") == 0.04
+    def test_estimate_cost_by_model_and_size(self):
+        """按**模型 + 尺寸**查价（DALL·E 3 两种档位）"""
+        p = OpenAIImageProvider(name="openai")
+        assert p._estimate_cost("dall-e-3", "1024x1024") == 0.04
+        assert p._estimate_cost("dall-e-3", "1024x1792") == 0.08
+        assert p._estimate_cost("dall-e-3", "1792x1024") == 0.08
+
+    def test_estimate_cost_uncalibrated_model_is_none(self):
+        """方舟 Seedream（2048x2048）→ `None`，**不再落到 DALL·E 的 0.04 兜底**
+
+        这是本轮的核心修复点：旧 `_estimate_cost(size)` 只认三种 DALL·E 尺寸，
+        2048x2048 没命中任何键 → 一律 0.04；而我们实际用的就是方舟 2048x2048。
+        """
+        p = OpenAIImageProvider(name="ark", default_size="2048x2048")
+        assert p._estimate_cost("doubao-seedream-5-0-260128", "2048x2048") is None
+        assert p._estimate_cost("doubao-seedream-5-0-260128", "1024x1024") is None
+        assert p._estimate_cost("某新模型", "1024x1024") is None
+
+    @pytest.mark.asyncio
+    async def test_generate_uncalibrated_reports_null_cost(self, openai_http, monkeypatch):
+        """方舟路由出图：结果里 `cost_usd=None`（键在、值为 null），张数/模型照报"""
+        monkeypatch.setenv("ARK_API_KEY", "ark-test")
+        openai_http["response"] = _FakeResponse(200, {
+            "data": [{"url": "https://img.example.com/1.png"}],
+        })
+        p = OpenAIImageProvider(name="ark", default_size="2048x2048")
+        result = await p.generate("白底主图", size="2048x2048",
+                                  model="doubao-seedream-5-0-260128")
+        assert "cost_usd" in result and result["cost_usd"] is None
+        assert result["model_used"] == "doubao-seedream-5-0-260128"

@@ -12,7 +12,7 @@ class StyleAnalystAgent(BaseAgent):
     """使用 Vision 能力拆解参考图的风格要素"""
 
     meta_name = "风格拆解员"
-    timeout_ms = 30_000
+    timeout_ms = 150_000
 
     async def _execute_impl(self, task_brief: str, session) -> dict:
         from src.providers.mock import MockLLMProvider
@@ -35,7 +35,7 @@ class StyleAnalystAgent(BaseAgent):
             ],
             **self._model_kwargs(),
         )
-        return result.get("content", self._mock_breakdown())
+        return self._content_or_error(result, self._mock_breakdown())
 
     def _mock_breakdown(self) -> dict:
         """Mock：返回模板风格拆解（含可直接拼入提示词的文本描述）"""

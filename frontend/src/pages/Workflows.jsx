@@ -5,6 +5,7 @@ import {
   exportTemplate, importTemplate,
 } from '../api'
 import { StatusBadge } from './Dashboard'
+import { formatCost, costTitle, sessionCostMeta } from '../cost'
 
 const STATUS_BADGES = {
   created: 'badge-muted', queued: 'badge-muted', running: 'badge-info',
@@ -229,7 +230,7 @@ export default function Workflows() {
                     <td className="strong">{j.template_name}</td>
                     <td><span className={`badge ${STATUS_BADGES[j.status] || 'badge-muted'}`}>{STATUS_LABELS[j.status] || j.status}</span></td>
                     <td className="text-sm">{j.mode === 'manual' ? '手动挡' : '自动挡'}</td>
-                    <td className="text-sm">${(j.cost_so_far || 0).toFixed(4)}</td>
+                    <td className="text-sm" title={costTitle(sessionCostMeta(j))}>{formatCost(j.cost_so_far, sessionCostMeta(j))}</td>
                     <td className="text-xs">{new Date(j.created_at).toLocaleString()}</td>
                     <td><Link to={`/workflows/${j.job_id}`} className="btn btn-primary btn-sm">查看画布</Link></td>
                   </tr>

@@ -1,0 +1,13 @@
+name: 提示词审核优化员
+description: 按大众电商商品图的审美（平面设计导向：版式/品牌色系/背景设计/光影精修/材质/留白）审核提示词，并直接给出问题槽位的改写稿
+version: "1.0.0"
+requires: [text]
+timeout_ms: 180000
+retry:
+  max_retries: 1
+  backoff: exponential
+params:
+  - key: aesthetic_threshold
+    label: 审美阈值（低于该分数将改写画面描述）
+    type: number
+    default: "85"

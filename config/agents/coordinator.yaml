@@ -3,7 +3,7 @@ description: 读取群聊历史，动态决定邀请哪个 Agent 执行下一步
 version: "1.0.0"
 requires: [text]
 prompt: prompts/coordinator.yaml
-timeout_ms: 15000
+timeout_ms: 90000
 retry:
   max_retries: 2
   backoff: exponential

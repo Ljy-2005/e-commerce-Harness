@@ -3,7 +3,7 @@ description: 按 5 维度审查生成图片（质感/光影/构图/商品还原�
 version: "1.0.0"
 requires: [vision]
 prompt: prompts/reviewer.yaml
-timeout_ms: 30000
+timeout_ms: 150000
 retry:
   max_retries: 3
   backoff: exponential

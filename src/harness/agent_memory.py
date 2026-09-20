@@ -3,9 +3,15 @@
 import asyncio
 import json
 import hashlib
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from collections import defaultdict
+
+# 模块级写锁（第三轮审计 B1-6）：追加是"打开-写-关闭"，无锁时并发 remember()
+# 互相覆盖缓冲区，实测 400 并发只落盘 376 行（丢 24）。与 audit_logger 的
+# `_WRITE_LOCK` 同一修法：锁必须跨实例共享，不能用实例属性。
+_MEMORY_WRITE_LOCK = threading.Lock()
 
 
 class AgentMemory:
@@ -19,8 +25,14 @@ class AgentMemory:
     """
 
     def __init__(self, storage_dir: str = ""):
-        self._dir = Path(storage_dir) if storage_dir else Path(__file__).parent.parent.parent / "data" / "memory"
+        self._explicit_dir = Path(storage_dir) if storage_dir else None
         self._dir.mkdir(parents=True, exist_ok=True)
+
+    @property
+    def _dir(self) -> Path:
+        """记忆目录：显式注入优先；否则 data_root()/memory（B2-18：可被 ECOMM_DATA_DIR 重定向）"""
+        from src.core.config import data_root
+        return self._explicit_dir or (data_root() / "memory")
 
     # ── 记录 ──
 
@@ -61,9 +73,12 @@ class AgentMemory:
         await asyncio.to_thread(self._append_entry, key, entry)
 
     def _append_entry(self, key: str, entry: dict):
-        file = self._dir / f"{key}.jsonl"
-        with open(file, "a", encoding="utf-8") as f:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        line = json.dumps(entry, ensure_ascii=False) + "\n"
+        # B1-6：先序列化再持锁写（锁内只有一次 write），并发下既不丢条目也不产生半行
+        with _MEMORY_WRITE_LOCK:
+            file = self._dir / f"{key}.jsonl"
+            with open(file, "a", encoding="utf-8") as f:
+                f.write(line)
 
     # ── 召回 ──
 

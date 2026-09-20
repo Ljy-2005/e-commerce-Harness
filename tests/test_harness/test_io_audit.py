@@ -171,3 +171,44 @@ class TestAuditLogger:
         assert only_a[0]["session_id"] == "s-tenant_a"
         # 无租户参数 → 不限制
         assert len(await logger.query()) >= 2
+
+    @pytest.mark.asyncio
+    async def test_null_cost_is_logged_not_crashed(self, logger):
+        """价格未标定 → `cost_usd=None` 必须能落盘（null）并标 `cost_unknown`
+
+        此前 `entry["cost_usd"] = round(cost_usd, 6)` 遇 None 直接 TypeError；
+        引擎那层 try 会吞掉它 → **这次调用整条审计丢失**（用量/耗时也一起消失）。
+        """
+        await logger.log(
+            session_id="s-unpriced",
+            agent_name="生图员",
+            provider_name="ark",
+            model="doubao-seedream-5-0-260128",
+            action="execute",
+            duration_ms=30000,
+            tokens_used=0,
+            cost_usd=None,
+            status="ok",
+            cost_unknown=True,
+        )
+        entries = await logger.query(session_id="s-unpriced")
+        assert len(entries) == 1
+        entry = entries[0]
+        assert entry["cost_usd"] is None, "未标定写 null，不能写 0"
+        assert entry["cost_unknown"] is True
+        assert entry["tokens"] == 0
+        assert entry["duration_ms"] == 30000.0, "用量/耗时是事实，必须留下"
+
+    @pytest.mark.asyncio
+    async def test_stats_skips_null_cost(self, logger):
+        """汇总跳过 null（不当 0），并给出 unknown_calls —— 否则"今日花费"会偏小"""
+        await logger.log(session_id="s1", agent_name="A", provider_name="openai",
+                         model="gpt-4o", action="execute", duration_ms=1,
+                         tokens_used=10, cost_usd=0.25, status="ok")
+        await logger.log(session_id="s2", agent_name="生图员", provider_name="ark",
+                         model="doubao-seedream-5-0-260128", action="execute",
+                         duration_ms=1, tokens_used=0, cost_usd=None, status="ok")
+        stats = await logger.stats()
+        assert stats["total_calls"] == 2
+        assert stats["total_cost_usd"] == pytest.approx(0.25)
+        assert stats["unknown_calls"] == 1

@@ -7,6 +7,7 @@ import {
   getWorkflowTemplates, getBatches, getBatch, getBatchReport,
   createBatch, createBatchCsv, controlBatch,
 } from '../api'
+import { formatCost } from '../cost'
 
 const BATCH_BADGES = {
   created: 'badge-muted', running: 'badge-info', paused: 'badge-warn',
@@ -37,7 +38,15 @@ function fmtMs(ms) {
 }
 
 function fmtUsd(v) {
-  return `$${(v || 0).toFixed(4)}`
+  // 金额只可能是"已标定部分"；未标定由后端单独计数（unknown_cost_calls），不在这里估
+  return formatCost(v, { currency: 'USD' })
+}
+
+/** "≈$1.20 ｜ 另有 3 次未标定" —— 批量报表的口径（用户：未标定不显示金额） */
+function fmtCostWithUnknown(amount, unknownCalls) {
+  const base = formatCost(amount, { currency: 'USD' })
+  const unknown = Number(unknownCalls || 0)
+  return unknown > 0 ? `${base} ｜ 另有 ${unknown} 次未标定` : base
 }
 
 function ReportPanel({ report, error, onRefresh }) {
@@ -66,7 +75,7 @@ function ReportPanel({ report, error, onRefresh }) {
           ['批次总数', ov.batch_count],
           ['商品条目', ov.item_count],
           ['成功率', `${Math.round(ov.success_rate * 1000) / 10}%`],
-          ['总成本', fmtUsd(ov.total_cost_usd)],
+          ['总成本', fmtCostWithUnknown(ov.total_cost_usd, ov.unknown_cost_calls)],
         ].map(([label, value]) => (
           <div key={label} className="card stat-card" style={{ padding: 14 }}>
             <div className="stat-value">{value}</div>
@@ -103,7 +112,7 @@ function ReportPanel({ report, error, onRefresh }) {
               <div key={t.template_name} className="flex justify-between text-xs">
                 <span>{t.template_name}</span>
                 <span style={{ color: '#94a3b8' }}>
-                  {t.succeeded}/{t.succeeded + t.failed} 成功 · 均耗时 {fmtMs(t.avg_duration_ms)} · {fmtUsd(t.total_cost_usd)}
+                  {t.succeeded}/{t.succeeded + t.failed} 成功 · 均耗时 {fmtMs(t.avg_duration_ms)} · {fmtCostWithUnknown(t.total_cost_usd, t.unknown_cost_calls)}
                 </span>
               </div>
             ))}

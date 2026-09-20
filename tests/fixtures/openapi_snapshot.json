@@ -1,0 +1,192 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "E-Commerce Harness",
+    "version": "0.2.0"
+  },
+  "paths": {
+    "/api/admin/status": [
+      "get"
+    ],
+    "/api/agents": [
+      "get"
+    ],
+    "/api/audit": [
+      "get"
+    ],
+    "/api/memory/recall": [
+      "get"
+    ],
+    "/api/memory/stats": [
+      "get"
+    ],
+    "/api/platforms": [
+      "get"
+    ],
+    "/api/sessions": [
+      "get",
+      "post"
+    ],
+    "/api/sessions/{session_id}": [
+      "delete",
+      "get"
+    ],
+    "/api/sessions/{session_id}/ab-test": [
+      "post"
+    ],
+    "/api/sessions/{session_id}/decision": [
+      "post"
+    ],
+    "/api/sessions/{session_id}/export": [
+      "get"
+    ],
+    "/api/sessions/{session_id}/facts": [
+      "post"
+    ],
+    "/api/sessions/{session_id}/images/{index}/download": [
+      "get"
+    ],
+    "/api/sessions/{session_id}/interject": [
+      "post"
+    ],
+    "/api/sessions/{session_id}/messages": [
+      "get"
+    ],
+    "/api/sessions/{session_id}/style": [
+      "post"
+    ],
+    "/api/settings": [
+      "get"
+    ],
+    "/api/settings/agents/{agent_name}": [
+      "post"
+    ],
+    "/api/settings/api-keys": [
+      "post"
+    ],
+    "/api/settings/chat": [
+      "post"
+    ],
+    "/api/settings/image": [
+      "post"
+    ],
+    "/api/settings/image/probe": [
+      "post"
+    ],
+    "/api/settings/models": [
+      "post"
+    ],
+    "/api/settings/output": [
+      "post"
+    ],
+    "/api/settings/pricing": [
+      "get",
+      "post"
+    ],
+    "/api/settings/pricing/calibrate": [
+      "post"
+    ],
+    "/api/settings/providers/custom": [
+      "post"
+    ],
+    "/api/settings/providers/custom/{route}": [
+      "delete"
+    ],
+    "/api/settings/providers/move-credential": [
+      "post"
+    ],
+    "/api/settings/providers/presets": [
+      "get"
+    ],
+    "/api/settings/providers/{route}": [
+      "post"
+    ],
+    "/api/settings/providers/{route}/models": [
+      "get"
+    ],
+    "/api/settings/providers/{route}/test": [
+      "post"
+    ],
+    "/api/settings/tenant-keys": [
+      "get",
+      "post"
+    ],
+    "/api/style-library": [
+      "get",
+      "post"
+    ],
+    "/api/style-library/preview": [
+      "get"
+    ],
+    "/api/style-library/{entry_id}": [
+      "delete",
+      "get",
+      "patch"
+    ],
+    "/api/style-library/{entry_id}/photos": [
+      "post"
+    ],
+    "/api/style-library/{entry_id}/photos/{index}": [
+      "delete"
+    ],
+    "/api/style-library/{entry_id}/reanalyze": [
+      "post"
+    ],
+    "/api/webhooks/workflows/{job_id}/decision": [
+      "post"
+    ],
+    "/api/workflows/batches": [
+      "get",
+      "post"
+    ],
+    "/api/workflows/batches/report": [
+      "get"
+    ],
+    "/api/workflows/batches/{batch_id}": [
+      "get"
+    ],
+    "/api/workflows/batches/{batch_id}/control": [
+      "post"
+    ],
+    "/api/workflows/jobs": [
+      "get"
+    ],
+    "/api/workflows/jobs/{job_id}": [
+      "get"
+    ],
+    "/api/workflows/jobs/{job_id}/control": [
+      "post"
+    ],
+    "/api/workflows/jobs/{job_id}/decision": [
+      "post"
+    ],
+    "/api/workflows/jobs/{job_id}/replicate": [
+      "post"
+    ],
+    "/api/workflows/templates": [
+      "get"
+    ],
+    "/api/workflows/templates/import": [
+      "post"
+    ],
+    "/api/workflows/templates/{name}/export": [
+      "get"
+    ],
+    "/api/workflows/templates/{name}/instantiate": [
+      "post"
+    ],
+    "/health": [
+      "get"
+    ]
+  },
+  "schemas": [
+    "Body_create_session_api_sessions_post",
+    "Body_human_decision_api_sessions__session_id__decision_post",
+    "Body_style_library_add_photos_api_style_library__entry_id__photos_post",
+    "Body_style_library_create_api_style_library_post",
+    "Body_workflow_instantiate_api_workflows_templates__name__instantiate_post",
+    "Body_workflow_replicate_api_workflows_jobs__job_id__replicate_post",
+    "HTTPValidationError",
+    "ValidationError"
+  ]
+}

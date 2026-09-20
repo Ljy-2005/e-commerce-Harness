@@ -1,20 +1,34 @@
 name: 商品分析员
 description: 分析商品图片，识别品类、材质、卖点、目标人群、风格约束
-version: "1.0.0"
-requires: [vision]
+version: 1.0.0
+requires:
+- vision
 prompt: prompts/analyst.yaml
-timeout_ms: 30000
+timeout_ms: 150000
 retry:
   max_retries: 3
   backoff: exponential
 params:
-  - key: detail_level
-    label: 分析详细程度
-    type: select
-    options: [basic, standard, detailed]
-    default: standard
-  - key: focus_areas
-    label: 分析重点
-    type: multi_select
-    options: [品类识别, 材质分析, 卖点提取, 人群画像, 风格建议, 合规风险]
-    default: [品类识别, 材质分析, 卖点提取, 风格建议]
+- key: detail_level
+  label: 分析详细程度
+  type: select
+  options:
+  - basic
+  - standard
+  - detailed
+  default: standard
+- key: focus_areas
+  label: 分析重点
+  type: multi_select
+  options:
+  - 品类识别
+  - 材质分析
+  - 卖点提取
+  - 人群画像
+  - 风格建议
+  - 合规风险
+  default:
+  - 卖点提取
+  - 风格建议
+  - 品类识别
+  - 材质分析

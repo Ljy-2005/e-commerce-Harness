@@ -7,7 +7,7 @@ class CategorySpecialistAgent(BaseAgent):
     """针对特定品类的深度分析"""
 
     meta_name = "品类专项分析员"
-    timeout_ms = 30_000
+    timeout_ms = 150_000
 
     async def _execute_impl(self, task_brief: str, session) -> dict:
         # 从之前的分析结果中获取品类
@@ -28,7 +28,7 @@ class CategorySpecialistAgent(BaseAgent):
             ],
             **self._model_kwargs(),
         )
-        return result.get("content", self._mock_by_category(category))
+        return self._content_or_error(result, self._mock_by_category(category))
 
     def _mock_by_category(self, category: str) -> dict:
         from src.providers.mock import MOCK_ANALYSIS

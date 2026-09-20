@@ -13,7 +13,14 @@ _NODE_TYPES = ("tool", "agent", "condition", "human", "group_chat", "end", "subw
 
 
 def _workflows_dir() -> Path:
-    return Path(__file__).parent.parent.parent / "config" / "workflows"
+    """模板目录（config/workflows）。
+
+    第三轮审计 B2-18：改为经 `_project_root()` 解析，与写入侧（`api/main.py` 的
+    模板导入）保持同一基准——此前这里是 file-relative 硬编码，一旦根目录被重定向
+    （ECOMM_PROJECT_ROOT）就会出现"写得进、读不到"的分叉。
+    """
+    from src.core.config import _project_root
+    return _project_root() / "config" / "workflows"
 
 
 def _safe_template_path(name: str) -> Path | None:

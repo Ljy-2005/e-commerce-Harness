@@ -29,6 +29,10 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# P4（test-plan）：默认套件只跑确定性 Mock——real（真实 API，花钱/需 Key）与
+# slow（负载压力）显式排除；`pytest -m real` / `pytest -m slow` 手动触发，
+# `pytest -m "not real"` 跑含 slow 的全量（CI 后端 job 用）
+addopts = "-m 'not real and not slow'"
 markers = [
     "slow: slow integration tests",
     "real: tests that require real API keys",

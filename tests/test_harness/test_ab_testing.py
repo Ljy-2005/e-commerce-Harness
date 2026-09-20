@@ -346,3 +346,48 @@ class TestABTestRunner:
         # 覆盖只对本次调用生效
         await agent.execute("t2", {"tenant_id": "default"})
         assert seen["model"] is None
+
+
+# ── 未标定价格（None）不得让 A/B 崩溃 ──
+
+
+class TestUnknownCost:
+    """`cost_usd=None`（价格未标定）时 `sum(...)` 会 TypeError；当 0 又是"编钱"。
+
+    用户质疑："每个模型的花费又会随着时间被各大模型商来回修改……不然会出现很大的误导"。
+    """
+
+    @pytest.mark.asyncio
+    async def test_none_cost_does_not_crash_and_is_not_summed(self, ab_session):
+        class _MixedAgent:
+            meta_name = "混合员"
+            provider = None
+
+            async def execute(self, task_brief, session, model_override=None):
+                if model_override == "没标价的模型":
+                    return {"content": {}, "tokens_used": 10, "cost_usd": None}
+                return {"content": {}, "tokens_used": 10, "cost_usd": 0.3}
+
+        registry = AgentRegistry()
+        registry.register(_MixedAgent(),
+                          AgentMeta(name="混合员", description="测试用", requires=["text"]))
+        config = ABTestConfig(
+            agent_name="混合员",
+            variants=[ABVariant("v-priced", model_override="dall-e-3"),
+                      ABVariant("v-unpriced", model_override="没标价的模型")],
+            review_count=0,
+        )
+        result = await ABTestRunner(registry, ab_session).run(config)
+
+        by_id = {v.variant_id: v for v in result.variants}
+        assert by_id["v-unpriced"].cost_usd is None
+        assert by_id["v-unpriced"].cost_unknown is True
+        assert by_id["v-priced"].cost_usd == pytest.approx(0.3)
+        # 只累加已知部分 + 单独计数未标定
+        assert result.total_cost_usd == pytest.approx(0.3)
+        assert result.cost_unknown_calls == 1
+
+    def test_dataclass_defaults(self):
+        assert VariantResult("v1").cost_usd is None
+        assert VariantResult("v1").cost_unknown is True
+        assert ABTestResult(config=ABTestConfig(agent_name="a", variants=[])).total_cost_usd == 0.0

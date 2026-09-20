@@ -95,6 +95,56 @@ class TestHumanNode:
         assert job.status == JobStatus.FAILED
 
     @pytest.mark.asyncio
+    async def test_decision_in_publish_window_is_not_dropped(self, engine, store, job_inputs,
+                                                             monkeypatch):
+        """竞态回归：决策恰好落在「WAITING_HUMAN 已落库 → 引擎进入等待」之间
+
+        实测 flake：`TestHumanNode` 整类连跑时约 25% 概率本应 FAILED 的作业变成
+        completed —— `action` 是每轮新建的局部变量，窗口内 human_action 已就绪会跳过
+        等待，action 仍是空串 → 路由回落默认边（= 批准），**用户的 reject 被静默丢弃**。
+        这里在 WAITING_HUMAN 落库的瞬间注入决策，确定性复现该窗口。
+        """
+        job = templates.instantiate("compliance_hardened", job_inputs, mode="auto")
+        await store.create_job(job)
+
+        real_update_job = store.update_job
+        injected = {"done": False}
+
+        async def _hooked_update_job(j):
+            await real_update_job(j)
+            if j.status == JobStatus.WAITING_HUMAN and not injected["done"]:
+                injected["done"] = True
+                rt = engine._runtimes[j.job_id]
+                rt.human_action = "reject"        # 模拟 decide_human 正在此刻到达
+                if rt.human_event:
+                    rt.human_event.set()
+
+        monkeypatch.setattr(store, "update_job", _hooked_update_job)
+        task = await engine.start(job)
+        await asyncio.wait_for(task, timeout=60)
+
+        assert injected["done"], "未触发到等待窗口，用例失效"
+        assert (await store.get_job(job.job_id)).status == JobStatus.FAILED
+
+    @pytest.mark.asyncio
+    async def test_human_decision_is_consumed(self, engine, store, job_inputs):
+        """决策必须被消费：否则同 job 后续 human 节点（或回跳重跑）会复用上一次决策"""
+        job = templates.instantiate("compliance_hardened", job_inputs, mode="auto")
+        await store.create_job(job)
+        task = await engine.start(job)
+        for _ in range(400):
+            await asyncio.sleep(0.1)
+            job = await store.get_job(job.job_id)
+            if job.status == JobStatus.WAITING_HUMAN:
+                break
+        await engine.decide_human(job.job_id, "approve")
+        await asyncio.wait_for(task, timeout=60)
+
+        runtime = engine._runtimes.get(job.job_id)
+        if runtime is not None:
+            assert runtime.human_action == "", "决策未被消费，会污染后续节点"
+
+    @pytest.mark.asyncio
     async def test_decision_on_non_waiting_job_rejected(self, engine, store, job_inputs):
         job, _ = await instantiate_and_run(engine, store, "scene_suite", job_inputs)
         with pytest.raises(ValueError, match="未等待人工审批"):

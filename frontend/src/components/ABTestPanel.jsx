@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { runABTest } from '../api'
+import { formatCost, costTitle } from '../cost'
 
 const DEFAULT_VARIANTS = [
   { variant_id: 'v_gpt4o', label: 'GPT-4o', model_override: 'gpt-4o' },
@@ -94,7 +95,10 @@ function ABTestResult({ result }) {
       <div className="alert alert-info">
         优胜变体: <span className="strong">{result.winner !== 'none' && result.winner ? result.winner : '无（未达阈值）'}</span>
         {result.winner_score > 0 && <span> · 得分 {result.winner_score}/100</span>}
-        <span> · 总成本 ${(result.total_cost_usd || 0).toFixed(4)}</span>
+        <span> · 总成本 <span title={costTitle({ amount: result.total_cost_usd, currency: 'USD', unknown_calls: result.cost_unknown_calls })}>{formatCost(result.total_cost_usd, { currency: 'USD', unknown_calls: result.cost_unknown_calls })}</span></span>
+        {result.cost_unknown_calls > 0 && (
+          <span> · 另有 {result.cost_unknown_calls} 个变体价格未标定</span>
+        )}
       </div>
       <div className="table-wrap">
         <table className="table">
@@ -108,7 +112,11 @@ function ABTestResult({ result }) {
                 <td className="mono">{v.id}</td>
                 <td>{v.label}</td>
                 <td className="strong">{v.score}/100</td>
-                <td className="text-sm">${(v.cost_usd || 0).toFixed(4)}</td>
+                <td className="text-sm">
+                  <span title={costTitle({ amount: v.cost_usd, currency: 'USD', unknown_calls: v.cost_unknown ? 1 : 0 })}>
+                    {formatCost(v.cost_usd, { currency: 'USD', usage: { calls: 1 } })}
+                  </span>
+                </td>
                 <td className="text-sm">{Math.round(v.elapsed_ms || 0)}ms</td>
               </tr>
             ))}

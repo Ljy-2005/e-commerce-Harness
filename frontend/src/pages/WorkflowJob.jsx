@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import {
   getWorkflowJob, controlWorkflow, decideWorkflow, replicateStyle, wsUrl,
 } from '../api'
+import { formatCost, costTitle, sessionCostMeta } from '../cost'
 
 const NODE_ICONS = {
   tool: '🔧', agent: '🤖', condition: '🔀', human: '👤',
@@ -137,7 +138,7 @@ export default function WorkflowJob() {
           </h1>
           <span className={`badge ml-1 ${JOB_BADGES[job.status] || 'badge-muted'}`}>{job.status}</span>
           <span className="badge badge-muted ml-1">{job.mode === 'manual' ? '手动挡' : '自动挡'}</span>
-          <span className="text-sm ml-1">成本 <span className="strong">${(job.cost_so_far || 0).toFixed(4)}</span></span>
+          <span className="text-sm ml-1">成本 <span className="strong" title={costTitle(sessionCostMeta(job))}>{formatCost(job.cost_so_far, sessionCostMeta(job))}</span></span>
           <span className="text-sm ml-1">{connected ? '🟢 实时' : '🟡 轮询'}</span>
         </div>
         <div className="flex gap-1" style={{ flexWrap: 'wrap' }}>
@@ -199,7 +200,23 @@ export default function WorkflowJob() {
                     <div className="text-xs" style={{ color: style.dot, marginTop: 4 }}>
                       ● {style.label}{s.attempt > 0 ? ` · 第 ${s.attempt} 次` : ''}
                     </div>
-                    {s.elapsed_ms > 0 && <div className="text-xs mt-1" style={{ color: '#64748b' }}>{Math.round(s.elapsed_ms)}ms · ${(s.cost_usd || 0).toFixed(4)}</div>}
+                    {s.elapsed_ms > 0 && (() => {
+                      // 步骤金额：只认产物里的 cost_usd（可能是 null = 价格未标定），
+                      // 不再 `(s.cost_usd || 0).toFixed(4)` 把"未知"显示成 $0.0000
+                      const outs = s.outputs || {}
+                      const meta = {
+                        amount: outs.cost_usd,
+                        currency: outs.cost_currency || 'CNY',
+                        unknown_calls: outs.cost_unknown ? 1 : 0,
+                      }
+                      return (
+                        <div className="text-xs mt-1" style={{ color: '#64748b' }}
+                             title={costTitle(meta)}>
+                          {Math.round(s.elapsed_ms)}ms · {formatCost(outs.cost_usd, meta)}
+                          {outs.cost_unknown ? `（${outs.usage?.images ?? 1} 张图）` : ''}
+                        </div>
+                      )
+                    })()}
                   </button>
                   {i < steps.length - 1 && <div className="node-arrow">→</div>}
                 </div>

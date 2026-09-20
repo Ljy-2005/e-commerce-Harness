@@ -115,6 +115,9 @@ def config_validate():
         typer.echo(f"\n[ERROR] {len(errors)} errors:")
         for e in errors:
             typer.echo(f"  - {e}")
+        # P3 补缺：配置校验失败必须以非零码退出（此前只打印、exit 0，
+        # CI 脚本/自动化无法感知配置损坏）
+        raise typer.Exit(1)
     else:
         typer.echo(f"\n[OK] All {len(agent_names) + 2} config files validated")
 
@@ -132,9 +135,22 @@ def _sync_run(image_path: str, platform: str = "taobao", product_info: str = "",
         if not path.exists():
             typer.echo(f"[ERROR] 图片不存在: {image_path}")
             raise typer.Exit(1)
+        if not path.is_file():
+            typer.echo(f"[ERROR] 不是文件: {image_path}")
+            raise typer.Exit(1)
 
         with open(path, "rb") as f:
-            b64 = base64.b64encode(f.read()).decode("utf-8")
+            raw = f.read()
+
+        # P3 补缺（test-plan L1）：坏图/超限图在 CLI 入口即拦截（与 API 上传
+        # 管线一致的预处理：解压炸弹防护/尺寸缩放/压缩），避免坏图流到
+        # 真实 Provider 浪费调用
+        from src.harness.image_preprocessor import ImagePreprocessor
+        pre = ImagePreprocessor().process(raw, source_name=path.name)
+        if pre.error:
+            typer.echo(f"[ERROR] 图片校验失败: {pre.error}")
+            raise typer.Exit(1)
+        b64 = base64.b64encode(pre.data).decode("utf-8")
 
         # 初始化
         provider_registry = get_provider_registry()
@@ -181,7 +197,10 @@ def _sync_run(image_path: str, platform: str = "taobao", product_info: str = "",
             typer.echo(f"   winner: {ab['winner']} ({ab['winner_score']}/100)")
             for r in ab.get("ranking", []):
                 marker = " 👑" if r["id"] == ab["winner"] else ""
-                typer.echo(f"   {r['id']} ({r['label']}): {r['score']}/100, ${r['cost_usd']:.4f}{marker}")
+                # 金额可能是 None（该变体模型价格未标定）→ 显示 —，不再 `.4f` 崩或假装 $0
+                cost = r.get("cost_usd")
+                cost_text = f"${cost:.4f}" if isinstance(cost, (int, float)) else "—（未标定）"
+                typer.echo(f"   {r['id']} ({r['label']}): {r['score']}/100, {cost_text}{marker}")
 
         # 输出群聊摘要
         messages = result.get("messages", [])

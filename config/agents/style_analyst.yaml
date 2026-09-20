@@ -5,7 +5,7 @@ version: "1.0.0"
 class: src.agents.style_analyst.StyleAnalystAgent
 requires: [vision]
 prompt: prompts/style_analyst.yaml
-timeout_ms: 30000
+timeout_ms: 150000
 retry:
   max_retries: 2
   backoff: exponential

@@ -44,19 +44,32 @@ async def run(session: SessionState) -> SessionState:
             break
 
         if decision["action"] == "invite":
-            # 2. Agent 执行
-            result = await agent.execute(task_brief, session)
+            # 2. Agent 执行（stats 回填用量/耗时 → 审计）
+            result = await agent.execute(task_brief, session, stats=call_stats)
             广播 agent_msg
 
             # 3. 更新 artifacts
-            _update_artifacts(session, agent_name, result)
+            await _update_artifacts(session, agent_name, result)
 
-            # 4. 审查重试逻辑
-            if agent_name == "审查员" and verdict == "retry" and score < 75:
-                反馈 msg → session.messages  # Coordinator 下轮读到
+            # 3b. 进度落盘（轻量快照：剔掉上传图 base64）
+            await sessions.update(session_id, session, slim=True)
 
-    return session
+            # 4. 审查门禁（报错/缺 verdict/fail → 转人工；只有 pass 放行）
+            ...
+            # 5. 质量止损：审查/合规连续失败 N 次 → 终止会话
+            halt = self._quality_guard(session, agent_name, result)
+            if halt: → status=FAILED + error_history(kind=abort) + 群聊提示
 ```
+
+**审查门禁与止损**（A33/A37/A43/B1）：
+
+| 情况 | 处理 |
+|------|------|
+| 审查员报错 / `verdict` 缺失或非法 | 转人工 + `error_history`（**绝不当成 pass 放行**） |
+| 逐变体结果 `{"results": [...]}` | `review_normalize` 汇总（分数平均、判定取最严重）后再判定 |
+| `verdict="fail"` 或 `retry` 但无有效分数 | 转人工（不静默继续） |
+| 审查/合规**连续**未通过达到 `chat.max_consecutive_review_failures` | 会话自动停止（用户可在设置页调整，0 = 关闭） |
+| 人工 approve/retry | 计数清零（人已接管） |
 
 **artifacts 映射** (`_update_artifacts`):
 
@@ -76,12 +89,14 @@ async def run(session: SessionState) -> SessionState:
 ```
 create(images, product_info, platform, category_hint) → SessionState
 get(session_id) → SessionState | None
-update(session_id, state)    # 更新 + 刷新 updated_at
-delete(session_id)           # 删除
+update(session_id, state, slim=False)   # 更新 + 刷新 updated_at；slim=轻量快照
+delete(session_id)                      # 删除
 list_ids() → [str]
+set_ttl_hours(hours)                    # 设置页改「会话策略」后立即生效
 ```
 
-当前为**内存存储**（dict），后续可替换为 SQLite/Redis。
+当前为**内存存储**（dict）+ checkpoint 落盘；启动时会把 `data/checkpoints/*.json`
+**全部**恢复进内存（终态也恢复，否则重启后历史会话从列表消失）。
 
 ### Broadcaster (`broadcaster.py`)
 WebSocket 广播器：
@@ -137,3 +152,38 @@ Turn 8 | Coordinator done
 - **增加新artifact** → 在 `_update_artifacts` 中添加 `agent_name → key` 映射
 - **调整重试逻辑** → 修改 `run()` 中审查 feedback 的条件（`verdict == "retry" and score < 75`）
 - **替换存储后端** → 修改 `SessionManager._sessions` 的实现（dict → SQLite → Redis）
+
+## 商品身份门禁与出图体检播报（A48/A54，2026-09-16）
+
+用户反馈："产品分析员根本没有识别到我喂的图是什么品牌，商品名是什么都没强调或者提醒"。
+身份卡是全链路的事实基准，所以引擎在**分析完成后**与**出图完成后**各加了一个环节：
+
+### `_identity_gate(session, result, turn) → bool`
+
+| 情况 | 行为 |
+|------|------|
+| 识别成功（品牌+品名齐全、`source ∈ {vision, user_confirmed}`、置信度 ≥0.5） | 群聊播报 `✅ 商品身份：品牌 … ｜ 品名 … ｜ 规格 … ｜ 认证 …`，**继续跑**（不打扰） |
+| 真实视觉识别失败/低置信度（`source=vision`） | 群聊 `⚠️` 警示 + `error_history(kind="identity")` + **暂停转人工**（默认） |
+| `source ∈ {mock, none}`（演示数据/无身份块） | 同样醒目提醒，但**不拦流程**（否则 Mock 模式每条会话都卡在"确认品牌"） |
+| `chat.require_identity_confirm: false` | 只提醒不拦 |
+
+命中暂停时消息里带 `hitl: "identity_unconfirmed"` 与可执行指引（approve = 按现有信息继续、
+画面文字将虚化交后期贴图；retry = 重新分析商品图）。
+
+`_inject_identity_card(session, brief, agent_name)` 还会把身份卡**前置**进
+提示词/生图/审查/合规/品类分析的简报（前置 = 权重最高，与记忆库参考同款处理）。
+
+### `_attach_image_reports(session, result, turn)`
+
+生图完成后本地算指标（零成本），写入 `artifacts.quality_report` 与每张图的 `quality`，
+**并广播一条系统消息**（有问题标 `action=error`）：
+
+- `white_bg_ok` / `watermark_free`：白底与「AI生成」水印（实测产物边缘 240/238/235、
+  右下区 −30.7/−2.1/−27.7）
+- `identity_lost[]`：与参考图**主体相似度过低** → 提示"疑似模型在凭文字想象商品"
+  （退化成纯文生图）
+- `near_copy[]`：与参考图**整图高度相似且背景未换** → 提示"疑似直接复制、没有按提示词重绘"
+  （退化成纯图生图）
+- **套图覆盖度**：写 `artifacts.set_plan_coverage`，缺槽位时明说"套图不完整：应有 N 张，缺 …"
+
+> 体检失败（如 Pillow 缺失、坏图）**只告警**，绝不影响出图主流程。

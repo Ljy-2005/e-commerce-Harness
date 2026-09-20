@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { createSession, getSessions, deleteSession } from '../api'
+import { createSession, getSessions, deleteSession, getSettings, getPlatforms } from '../api'
+import { formatCost, costTitle, sessionCostMeta } from '../cost'
 import { StatusBadge } from './Dashboard'
 
 const MODES = [
@@ -10,6 +11,19 @@ const MODES = [
   { value: 'debate', label: '辩论模式', desc: '正反双方审查辩论' },
   { value: 'vote', label: '投票模式', desc: '3 位审查员独立投票' },
 ]
+
+const CAP_LABEL = { text: '文本', vision: '视觉', image: '生图' }
+
+/** 能力生效行（B3-26）：把"实际用哪个 Provider/模型、是否回落 Mock"摊开给用户看 */
+export function capabilitySummary(capabilities) {
+  return (capabilities || []).map(c => ({
+    ...c,
+    label: CAP_LABEL[c.capability] || c.capability,
+    text: c.is_mock
+      ? `${CAP_LABEL[c.capability] || c.capability}：Mock（回落）`
+      : `${CAP_LABEL[c.capability] || c.capability}：${c.provider}${c.model ? '/' + c.model : ''}`,
+  }))
+}
 
 export default function Sessions() {
   const navigate = useNavigate()
@@ -22,6 +36,9 @@ export default function Sessions() {
   const [mode, setMode] = useState('serial')
   const [submitting, setSubmitting] = useState(false)
   const [createError, setCreateError] = useState('')
+  const [settings, setSettings] = useState(null)
+  // 平台清单来自后端档案（config/platforms.yaml）：新增平台（如拼多多）无需改前端
+  const [platforms, setPlatforms] = useState([{ slug: 'taobao', label: '淘宝', slot_count: 0 }])
 
   const refresh = useCallback(async () => {
     try {
@@ -34,10 +51,28 @@ export default function Sessions() {
   }, [])
 
   useEffect(() => {
+    // 能力解析（B3-26）：让用户在建任务前就看到"生图会不会回落 Mock"
+    getSettings().then(setSettings).catch(() => {})
+    // 平台档案：选择器与"套图几张/什么规范"都由后端配置驱动
+    getPlatforms()
+      .then(data => {
+        const list = data?.platforms || []
+        if (list.length) {
+          setPlatforms(list)
+          const preferred = list.find(p => p.is_default) || list[0]
+          setPlatform(current => (list.some(p => p.slug === current) ? current : preferred.slug))
+        }
+      })
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
     refresh()
     const t = setInterval(refresh, 3000)
     return () => clearInterval(t)
   }, [refresh])
+
+  const currentPlatform = platforms.find(p => p.slug === platform)
 
   function handleDrop(e) {
     e.preventDefault()
@@ -84,6 +119,29 @@ export default function Sessions() {
         <form onSubmit={handleCreate} className="card">
           <h3 className="mb-1">新建商品图任务</h3>
 
+          {/* 能力落点（B3-26）：生图回落 Mock 时用户以为在出真图，跑完才发现是占位图 */}
+          {settings && (
+            <div className="cap-strip mb-2">
+              {capabilitySummary(settings.capabilities).map(c => (
+                <span key={c.capability} className={`chip ${c.is_mock ? 'chip-warn' : 'chip-ok'}`}>
+                  {c.text}
+                </span>
+              ))}
+              {settings.capabilities?.find(c => c.capability === 'image')?.is_mock && (
+                <div className="alert alert-warn mt-1" role="status">
+                  ⚠️ 生图能力当前回落 <b>Mock（占位图）</b>：未配置任何图像 Provider
+                  （Seedream / FLUX / OpenAI）的 Key，生成结果不是真实图片。
+                  <Link className="ml-1" to="/settings">去设置 →</Link>
+                </div>
+              )}
+              {settings.mock_mode && (
+                <div className="text-xs mt-1 text-muted">
+                  当前为 Mock 模式：流程可完整跑通，但所有产出均为模板数据。
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="form-group">
             <label className="label">商品图片（最多 10 张，拖拽或点击选择）</label>
             <div
@@ -120,14 +178,30 @@ export default function Sessions() {
           <div className="grid-2">
             <div className="form-group">
               <label className="label">目标平台</label>
-              <select className="select" value={platform} onChange={e => setPlatform(e.target.value)}>
-                <option value="taobao">淘宝</option>
-                <option value="amazon">Amazon</option>
-                <option value="xiaohongshu">小红书</option>
-                <option value="douyin">抖音</option>
-                <option value="jd">京东</option>
-                <option value="shopify">Shopify</option>
+              <select className="select" aria-label="目标平台" value={platform}
+                      onChange={e => setPlatform(e.target.value)}>
+                {platforms.map(p => (
+                  <option key={p.slug} value={p.slug}>
+                    {p.label}
+                    {p.slot_count ? `（主图 ${p.slot_count}${p.detail_slot_count ? ` + 图文 ${p.detail_slot_count}` : ''}）` : ''}
+                  </option>
+                ))}
               </select>
+              {currentPlatform && (
+                <p className="text-xs mt-1">
+                  {currentPlatform.aspect} · 背景 {currentPlatform.bg || '不限'} ·
+                  {currentPlatform.text_policy === 'none' ? ' 白底图不得添加文字' : ' 文字由系统排版'}
+                  {currentPlatform.slot_count ? ` · 主图上限 ${currentPlatform.max_images} 张` : ''}
+                </p>
+              )}
+              {currentPlatform?.slot_roles?.length > 0 && (
+                <p className="text-xs text-muted">
+                  套图角色：
+                  {currentPlatform.slot_roles
+                    .map(slot => `${slot.label}${slot.kind === 'info' ? '（图文）' : ''}`)
+                    .join('、')}
+                </p>
+              )}
             </div>
             <div className="form-group">
               <label className="label">品类提示</label>
@@ -186,7 +260,7 @@ export default function Sessions() {
                       <td><StatusBadge status={s.status} /></td>
                       <td className="text-sm">{s.platform}</td>
                       <td className="text-sm">{s.turn_count}</td>
-                      <td className="text-sm">${(s.cost_so_far || 0).toFixed(4)}</td>
+                      <td className="text-sm" title={costTitle(sessionCostMeta(s))}>{formatCost(s.cost_so_far, sessionCostMeta(s))}</td>
                       <td>
                         <div className="flex gap-1">
                           <Link to={`/session/${s.session_id}`} className="btn btn-primary btn-sm">查看</Link>

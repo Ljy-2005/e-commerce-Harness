@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState, useMemo } from 'react'
 import { useWebSocket } from '../useWebSocket'
+import { msgPreview, displayContent, detailFields, hiddenKeys, rawContentText } from '../chatFormat'
+
+export { msgPreview } from '../chatFormat'
 
 const SENDER_ICONS = {
   '中心决策者': '🎯',
@@ -20,27 +23,82 @@ export function senderIcon(name) {
   return SENDER_ICONS[name] || '🤖'
 }
 
-export function msgPreview(content) {
-  if (!content) return ''
-  if (content.error) return `❌ ${content.error}`
-  if (content.category) return `品类: ${content.category}`
-  if (content.overall_score) return `评分: ${content.overall_score}/100 | ${content.verdict}`
-  if (content.passed !== undefined) return `合规: ${content.passed ? '通过' : '不通过'}`
-  if (content.decision) return `决策: ${content.decision}`
-  if (content.feedback) return `反馈: ${content.feedback?.slice(0, 80)}`
-  if (content.hitl) return '⏸ 需要人工审查'
-  if (content.context_action) return `上下文: ${content.context_action}`
-  if (content.memory_recall) return `🧠 ${content.memory_recall.slice(0, 100)}`
-  if (content.winner) return `🏆 最优: ${content.winner} (${content.winner_score}/100)`
-  if (content.interjection) return `📣 用户插话: ${content.interjection}`
-  if (content.agent_name) return `邀请: ${content.agent_name} — ${content.task_brief?.slice(0, 60) || ''}`
-  if (content.action === 'done') return '✅ 任务完成'
-  // 生图员输出为 Mock 占位图时明确提示（未配置生图模型）
-  if (content.images && Array.isArray(content.images)
-    && content.images.every(i => (i.model_used || '').startsWith('mock') || (i.image_url || '').startsWith('data:image/svg+xml'))) {
-    return '⚠ 输出为占位图：未配置生图模型（DeepSeek 不支持生图，需 DALL-E / 即梦 / FLUX Key）'
-  }
-  return JSON.stringify(content).slice(0, 120)
+// `msgPreview` 已迁到 `../chatFormat`（含"绝不回落 JSON"的新兜底），
+// 这里保留 re-export：既有调用方（页面/测试）继续 `from './ChatPanel'` 拿得到。
+
+/** 逐张提示词的结构化渲染（第N张｜角色｜想要/必须/禁止）—— 不再丢一坨 JSON 给用户 */
+export function PromptPlanView({ plan }) {
+  if (!Array.isArray(plan) || plan.length === 0) return null
+  return (
+    <div className="prompt-plan" data-testid="prompt-plan">
+      {plan.map((slot) => (
+        <div key={slot.slot_id || slot.number} className="prompt-plan-item">
+          <div className="strong" style={{ fontSize: 12 }}>
+            第{slot.number}张｜{slot.role || slot.slot_id}（{slot.slot_id}）
+            {slot.usage === 'detail' ? '｜详情图' : '｜主图'}
+            {slot.kind === 'info' ? '｜信息图·文字本地排版' : '｜纯摄影'}
+            {slot.aesthetic_score != null && (
+              <span className="badge badge-info" style={{ marginLeft: 6 }}>
+                审美 {slot.aesthetic_score}
+              </span>
+            )}
+          </div>
+          {slot.intent && <div className="text-xs">想要：{slot.intent}</div>}
+          {slot.prompt && (
+            <details>
+              <summary className="text-xs" style={{ cursor: 'pointer' }}>查看画面描述</summary>
+              <div className="text-xs" style={{ whiteSpace: 'pre-wrap' }}>{slot.prompt}</div>
+            </details>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** 提示词体检 / 审美审核结论（群聊里直接可读） */
+export function PromptReviewView({ lint, review }) {
+  const findings = lint?.findings || []
+  if (!lint && !review) return null
+  return (
+    <div data-testid="prompt-review">
+      {lint && (
+        <div>
+          <div className="strong" style={{ fontSize: 12 }}>
+            🧪 提示词体检：{lint.errors?.length ? `❌ ${lint.errors.length} 项硬伤` : '✅ 通过'}
+            {lint.warnings?.length ? `，${lint.warnings.length} 项建议` : ''}
+          </div>
+          {findings.slice(0, 8).map((item, i) => (
+            <div key={i} className="text-xs">
+              {item.level === 'error' ? '❌' : '⚠️'} {item.number ? `第${item.number}张 ` : ''}
+              {item.message}
+            </div>
+          ))}
+        </div>
+      )}
+      {review && (
+        <div>
+          <div className="strong" style={{ fontSize: 12 }}>
+            🎨 提示词审美审核：{review.verdict}
+            {review.threshold != null ? `（阈值 ${review.threshold}）` : ''}
+          </div>
+          {review.scores && Object.keys(review.scores).length > 0 && (
+            <div className="text-xs">
+              逐张审美分：{Object.entries(review.scores).map(([k, v]) => `${k} ${v}`).join('｜')}
+            </div>
+          )}
+          {review.revised_slots?.length > 0 && (
+            <div className="text-xs">已改写：{review.revised_slots.join('、')}</div>
+          )}
+          {review.refine_rejected?.length > 0 && (
+            <div className="text-xs text-err">
+              被体检拦下的改写：{review.refine_rejected.map((r) => r.slot_id).join('、')}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
 }
 
 const FILTERS = [
@@ -196,7 +254,17 @@ function ChatMessage({ msg }) {
   const [expanded, setExpanded] = useState(false)
   const content = msg.content || {}
   const preview = msgPreview(content)
-  const full = JSON.stringify(content, null, 2)
+  const shown = displayContent(content)
+  const masked = hiddenKeys(content)
+  const full = rawContentText(content)
+  const text = typeof shown.message === 'string' ? shown.message : ''
+  // 展开后正文只给"人话"：文字内容 → 结构化卡片 → 人话字段；
+  // 原始字段（含签名 URL / 图片数据）降到默认折叠的「技术详情」——
+  // 需要排障时仍拿得到，但不再"展开就糊一脸"
+  const detail = { ...detailFields(content) }
+  delete detail.message
+  delete detail.base64_data
+  delete detail.image_url
 
   return (
     <div className={`chat-row ${msg.role}`}>
@@ -210,10 +278,35 @@ function ChatMessage({ msg }) {
           <span className="turn-tag">{msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString() : ''}</span>
         </div>
         <div className={`pre ${expanded ? '' : 'dim'}`}>
-          {expanded ? full : preview}
+          {expanded ? (
+            <>
+              {/* 正文先给人话：`message` 优先，其次与折叠态一致的预览句
+                  （展开后不能反而"更不像人话"——用户反馈的原话） */}
+              {(text || preview) && <div className="strong">{text || preview}</div>}
+              {content.prompt_plan?.length > 0 && <PromptPlanView plan={content.prompt_plan} />}
+              {(content.prompt_lint || content.prompt_review) && (
+                <PromptReviewView lint={content.prompt_lint} review={content.prompt_review} />
+              )}
+              {Object.keys(detail).length > 0 && (
+                <details>
+                  <summary className="text-xs" style={{ cursor: 'pointer' }}>查看详情字段</summary>
+                  <pre className="text-xs" style={{ whiteSpace: 'pre-wrap' }}>{rawContentText(detail)}</pre>
+                </details>
+              )}
+              <details>
+                <summary className="text-xs" style={{ cursor: 'pointer' }}>技术详情（原始字段）</summary>
+                {masked.length > 0 && (
+                  <p className="text-xs text-muted">
+                    已隐藏：{masked.join('、')}（仍可在此查看，请勿外传截图）
+                  </p>
+                )}
+                <pre className="text-xs" style={{ whiteSpace: 'pre-wrap' }}>{full}</pre>
+              </details>
+            </>
+          ) : preview}
         </div>
         <button className="expand-btn" onClick={() => setExpanded(!expanded)}>
-          {expanded ? '▲ 收起' : '▼ 展开完整内容'}
+          {expanded ? '▲ 收起' : '▼ 展开详情（文字内容与结构化卡片）'}
         </button>
       </div>
     </div>

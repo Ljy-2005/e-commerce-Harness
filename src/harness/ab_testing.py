@@ -42,15 +42,23 @@ class ABVariant:
 
 @dataclass
 class VariantResult:
-    """单个变体的执行结果"""
+    """单个变体的执行结果
+
+    `cost_usd` 可能是 `None` = **该变体所用模型价格未标定**（用量照记，金额不猜）。
+    `total_cost_usd` 只累加已知部分，未标定的次数记在 `ABTestResult.cost_unknown_calls`。
+    """
     variant_id: str
     label: str = ""
     output: dict = field(default_factory=dict)
     elapsed_ms: float = 0.0
-    cost_usd: float = 0.0
+    cost_usd: float | None = None
     tokens_used: int = 0
     error: str = ""
     scores: list[dict] = field(default_factory=list)   # 审查评分列表
+
+    @property
+    def cost_unknown(self) -> bool:
+        return self.cost_usd is None
 
     @property
     def avg_score(self) -> float:
@@ -94,6 +102,8 @@ class ABTestResult:
     runner_up: Optional[VariantResult] = None
     total_elapsed_ms: float = 0.0
     total_cost_usd: float = 0.0
+    # 价格未标定、因此没有计入 total 的变体数（用量仍是事实，界面要能显示）
+    cost_unknown_calls: int = 0
 
     @property
     def all_passed(self) -> bool:
@@ -149,11 +159,16 @@ class ABTestRunner:
                     vr.scores = await self._review_variant(reviewer, vr, config)
 
         # Stage 3: 排名和选优
+        # 金额只累加**已标定**的变体：`cost_usd` 可能是 None（价格未标定），
+        # `sum(...)` 会直接 TypeError；当成 0 则是把未知算成"没花钱"。
+        known = [vr.cost_usd for vr in variant_results
+                 if isinstance(vr.cost_usd, (int, float))]
         result = ABTestResult(
             config=config,
             variants=variant_results,
             total_elapsed_ms=(time.monotonic() - start_time) * 1000,
-            total_cost_usd=sum(vr.cost_usd for vr in variant_results),
+            total_cost_usd=round(sum(known), 6),
+            cost_unknown_calls=sum(1 for vr in variant_results if vr.cost_usd is None),
         )
 
         # 按平均分排名
@@ -193,7 +208,8 @@ class ABTestRunner:
                 label=variant.label,
                 output=output,
                 elapsed_ms=elapsed,
-                cost_usd=output.get("cost_usd", 0.0),
+                # 显式保留 None（价格未标定）；`or 0.0` 会把未知变成"没花钱"
+                cost_usd=output.get("cost_usd"),
                 tokens_used=output.get("tokens_used", 0),
                 error=output.get("error", ""),
             )

@@ -60,3 +60,30 @@ class TestCircuitBreaker:
     def test_allow_request_closed(self):
         cb = CircuitBreaker("test")
         assert cb.allow_request()
+
+    def test_full_recovery_lifecycle(self):
+        """P3 回归（test-plan L2）：熔断恢复全流程 OPEN → HALF_OPEN → CLOSED，
+        计数器归零、半开窗口放行上限内请求"""
+        cb = CircuitBreaker("full", failure_threshold=3, recovery_timeout_ms=1000, half_open_max=2)
+        for _ in range(3):
+            cb.record_failure()
+        assert cb.state == CircuitState.OPEN
+        assert not cb.allow_request()
+
+        _simulate_recovery_elapsed(cb)  # 恢复窗口已过 → HALF_OPEN
+        assert cb.state == CircuitState.HALF_OPEN
+
+        # 半开窗口：放行前 half_open_max 个探测请求，超出被拒
+        assert cb.allow_request()
+        assert cb.allow_request()
+        assert not cb.allow_request()
+
+        cb.record_success()
+        cb.record_success()
+        assert cb.state == CircuitState.CLOSED
+        assert cb._failure_count == 0
+        assert cb.allow_request()
+
+        # CLOSED 下成功保持计数清零
+        cb.record_success()
+        assert cb._failure_count == 0

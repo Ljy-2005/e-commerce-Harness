@@ -81,6 +81,46 @@ async def test_report_aggregates_overview_and_templates(store):
 
 
 @pytest.mark.asyncio
+async def test_report_counts_unpriced_steps_separately(store):
+    """未标定价格：金额只算已标定部分，另有 N 次未标定单独计数
+
+    **不加数据库列**（本库只有 CREATE TABLE IF NOT EXISTS，没有迁移机制，老库不会加列）：
+    步骤 `cost_usd` 保持 REAL，`cost_unknown`/`usage` 存在既有的 `outputs_json` 里，
+    报表把两者分开呈现（"已标定 $x ｜ 另有 N 次未标定"）。
+    """
+    from src.workflow.models import StepRecord, StepStatus
+
+    now = _now()
+    await _seed_batch(
+        store, "b1", "scene_suite", "default", "completed", 1, 0,
+        items=[("succeeded", "", "j1")], jobs={"j1": (3, 0.2)},
+    )
+    await store.create_steps([
+        StepRecord(job_id="j1", node="生图", type="agent", order=0,
+                   status=StepStatus.SUCCEEDED, cost_usd=0.0,
+                   outputs={"images": [{"slot_id": "main_white"}], "cost_usd": None,
+                            "cost_unknown": True, "usage": {"images": 3}},
+                   started_at=now, finished_at=now),
+        StepRecord(job_id="j1", node="提示词", type="agent", order=1,
+                   status=StepStatus.SUCCEEDED, cost_usd=0.2,
+                   outputs={"cost_usd": 0.2, "cost_unknown": False},
+                   started_at=now, finished_at=now),
+    ])
+
+    report = await store.get_batch_report(tenant_id="default")
+    assert report["overview"]["total_cost_usd"] == pytest.approx(0.2)
+    assert report["overview"]["unknown_cost_calls"] == 1
+    assert report["by_template"][0]["unknown_cost_calls"] == 1
+
+    # 事实（张数）留在既有列里，没有新增数据库列
+    steps = await store.get_steps("j1")
+    img_step = next(s for s in steps if s.node == "生图")
+    assert img_step.outputs["usage"]["images"] == 3
+    assert img_step.outputs["cost_unknown"] is True
+    assert img_step.cost_usd == 0.0, "REAL 列存不了 NULL 语义，未知即 0，真实口径在 outputs_json"
+
+
+@pytest.mark.asyncio
 async def test_report_histogram_and_failure_reasons(store):
     await _seed_batch(
         store, "b1", "scene_suite", "default", "partial", 2, 2,

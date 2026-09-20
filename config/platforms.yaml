@@ -1,0 +1,482 @@
+# 平台档案 —— 电商平台图片规范的单一事实来源
+#
+# 为什么有这个文件（用户提出"我还要做拼多多，风格也要写上"时暴露的问题）：
+# 平台清单此前散落在 9 处 —— prompt_gen.yaml 的静态风格清单只定义了 4 个平台，
+# config/agents/prompt_generator.yaml 用的是**中文名**，6 个 workflow 模板各存一份
+# options，前端 Sessions.jsx 硬编码 6 项。结果是"在界面上选一个平台，提示词里只有
+# 一个裸字符串，风格全靠模型猜"。
+#
+# 现在：新增一个平台 = 在这个文件里加一段（代码零改动）。前端选择器走 GET /api/platforms，
+# 提示词风格块由 src/core/platforms.py 渲染，套图 slot 也从这里取。
+#
+# 字段说明
+#   label        展示名
+#   aliases      可识别的别名（中文名/缩写/大小写混写都归一到这里）
+#   aspect       主图长宽比（"1:1" / "3:4"）
+#   export_size  平台要求的上传尺寸（生成图分辨率更高，必要时导出时降采样）
+#   min_side     平台允许的最小边（低于此值无法上传，仅作校验/提示）
+#   max_images   平台主图数量上限（slot 数不得超过它）
+#   bg           主图背景建议值（配合 background_policy 使用，见下）
+#   text_policy  none      = 图片上不得添加任何文字（平台硬规则）
+#                composite = 允许文字，但必须由设计师后期贴图，模型不得生成文字
+#   forbidden    画面里禁止出现的元素
+#   style        主图风格（写进生图提示词的风格约束）
+#   detail_style 信息图/详情图的**版式风格**（与主图风格分开，避免"不要留白"这类
+#                主图措辞把信息图版式需求压掉——实测踩过）
+#   art_style    该平台的设计调性（覆盖顶层 art_direction 的取向）
+#   slots        默认套图槽位（顺序即出图顺序；第 1 个通常是封面/主图）
+#   extra        可选槽位（默认不出，需要时在 config/image.yaml 里显式启用）
+#
+# 规范数值来自公开的电商平台图片规范汇编与各平台发布规则整理，
+# **平台规则会随版本更新、并按类目区分**，上架前请以对应平台商家后台规则中心为准。
+# 数值都在这里，随时可改。
+#
+# 槽位词表（自定义槽位也可用，但建议复用下列约定，便于审查/前端/后期贴图对齐）
+#   main_white          白底主体（正面平视、纯白背景、无文字）
+#   main_selling_point  核心卖点（文字版面后期贴图）
+#   main_scene          使用场景
+#   main_detail         细节/材质特写
+#   main_spec           规格参数图
+#   main_cert           资质认证图（内容必须来自真实包装，禁止臆造）
+#   note_cover          笔记封面（小红书等）
+#   note_scene          笔记场景
+#   note_detail         笔记细节
+
+default_platform: taobao
+
+# ── 主图背景策略（用户 2026-09-18 质疑："我其实是没看到有平台真有白底硬规则这个说法，
+#    很多商品图都不是白底的啊？"——质疑成立，此前把"白底"写成了全局硬规则）
+#
+#   white_required  = 平台（或该类目）确实要求纯白，生成时必须纯白
+#   white_preferred = 白底是通行做法/审核偏好，但仍允许极浅品牌色底
+#   design_allowed  = 允许干净的设计底（品牌浅色 / 双色分割 / 径向渐层 / 微质感），
+#                     硬约束只有"不得有文字、水印、边框、拼接"
+#
+# 跨平台**真正硬执行**的是：首图不得有文字/水印/边框/拼接/多图，主体清晰、不诱导。
+# 白底按平台/类目/频道分档且规则会更新 —— 上架前以商家后台规则中心为准；这里随时可改。
+# 本地体检的"背景是否合格"判定**按本策略显式声明**（不再靠猜背景字符串），
+# 否则"要设计底、体检却报背景不白"会让协调者白跑一轮重生成（A59 踩过）。
+background_policy_default: design_allowed
+
+# ── 视觉设计方向 ──
+#
+# 用户 2026-09-18 明确："电商商品图需要类似于平面设计的风格的，他的背景不一定非要
+# '真实'，而是要有一定的高级感让人一看就觉得这个牌子看着挺不错挺正规的样子"。
+#
+# 因此：**不追求纪实写真感**。画面是"设计出来的"：光影与投影是设计元素，背景可以是
+# 纯白、品牌浅色底、双色分割、径向渐层或微质感底。写实只用于**场景槽位**（使用情境）。
+art_direction:
+  goal: 让买家一眼觉得这个牌子正规、有档次 —— 主体清晰、画面干净、色系统一、留白有节奏
+  palette_roles:
+    primary: 主色（品牌识别色：色带 / 标题条 / 几何元素）
+    secondary: 辅色（次要元素与点缀）
+    background: 设计底色（品牌浅色系或纯白）
+  palette_source: 取本次上传包装上的真实品牌色（product_identity.brand_palette）；缺色板时回落中性商业配色并标注
+  allowed_elements: [横向色带, 细线框, 圆角卡片, 柔和光晕, 微质感底（哑光纸/布纹）]
+  element_budget: 最多 2 处，且不得遮挡商品、不得与主体抢视线
+  forbidden_looks: [多色撞色, 彩虹渐变, 贴纸描边, 密集光斑, 暗调脏底, HDR 味, 过度锐化, AI 塑料感, 画面内出现文字]
+  whitespace_ratio:
+    photo_white: 主体占画面 85–92%，四周留窄白边
+    photo_design: 主体占画面 55–70%，留白 ≥30% 且成片不散
+    info_base: 留白 ≥40% 且集中在指定区域（供系统本地排版文字层）
+
+slot_labels:
+  main_white: 纯商品图
+  main_selling_point: 核心卖点图
+  main_ingredients: 成分配方图
+  main_audience: 适用人群图
+  main_benefits: 功效列举图
+  main_spec: 规格参数图
+  main_usage: 使用方法图
+  main_scene: 使用场景图
+  main_cert: 资质认证图
+  main_detail: 细节特写
+  main_compare: 对比图
+  note_cover: 笔记封面
+  note_scene: 笔记场景
+  note_detail: 笔记细节
+  activity_banner: 活动主图
+
+# 槽位目录：决定"这张图怎么产出、要什么效果"
+#   kind: photo = 纯摄影，生图模型直接出成品（画面不出现文字）
+#         info  = **信息图**：模型只出**无字底图 + 留白版式**，文字层由本地排版引擎绘制
+#                 （字形 100% 准确、文案可审可改）—— 事实性文字绝不交给模型画
+#   usage: main = 平台主图（占主图额度）｜detail = 详情图（占详情图额度）
+#   copy:  信息图文案来源（对应分析结果/身份卡字段；**缺依据就标记 blocked，不编造**）
+#   layout: 排版模板（见 src/harness/image_compose.py）
+#   intent: 这张图要让买家看懂什么（提示词审核与改写都以它为准）
+#   design: 版式 / 背景 / 光影 / 材质的**设计要点**（设计导向的写法，不是纪实摄影）
+#   must:   硬性要求（代码注入最终提示词，模型与审核员都改不掉）
+#   forbid: 本槽位禁止项（代码注入；与全局 art_direction.forbidden_looks 叠加）
+#   keep_clear: 信息图的留白区位置与比例（供本地排版文字层）
+#   background_policy: 该槽位覆盖平台策略（一般不用写，跟随平台）
+slot_catalog:
+  main_white:
+    kind: photo
+    usage: main
+    intent: 让买家第一眼看清商品本体，建立"这是正规品牌"的第一印象
+    design: 纯白无缝底（#FFFFFF）；主体居中、正面平视或 8° 微俯，占画面 85–92%，四周留窄白边；
+      全画面清晰不虚化；主光 + 双侧补光 + 顶部柔光，烫金/哑光 UV 部位出现细窄镜面高光；
+      投影短而柔（约 12% 透明度椭圆），平台要求去投影时不要投影
+    must: [纯白背景（#FFFFFF）无缝, 商品实物完整可见不裁切不遮挡, 画面内无任何文字字母数字角标水印]
+    forbid: [道具, 模特或手部, 灰底/渐变底/纹理背景, 拉长或生硬的投影, 拼接/边框]
+  main_scene:
+    kind: photo
+    usage: main
+    intent: 让买家想象"这东西在我生活里怎么用"
+    design: 干净生活场景（浅色木桌 / 石纹台面 / 晨光窗边）；环境元素 ≤2 件且与用途相关；
+      主体占画面 45–60% 置于三分线；景深明确（背景柔和虚化但不糊成一片）
+    must: [商品实物清晰可辨, 场景干净且道具不超过 2 件, 光线方向明确]
+    forbid: [人物正脸特写, 医疗器材/药品瓶/化验单, 杂乱桌面, 任何文字]
+  main_detail:
+    kind: photo
+    usage: main
+    intent: 用细节证明做工与真材实料
+    design: 微距特写（材质 / 印花 / 封膜 / 胶囊纹理），主体占画面 70–85%；
+      背景干净纯色或浅色虚化；全清晰或浅景深（二者选一，写清楚）
+    must: [细节清晰锐利, 背景干净, 画面无文字]
+    forbid: [指纹/灰尘/划痕, 杂乱背景, 文字水印]
+  note_cover:
+    kind: photo
+    usage: main
+    intent: 竖版第一眼有生活感、愿意点开
+    design: 竖版 3:4；生活化构图（原木 / 布纹 / 窗光），主体占 45–60%；
+      柔和暖调、浅景深、氛围感；刻画"日常使用的一角"而不是影楼棚拍
+    must: [商品实物清晰, 画面干净不杂乱, 无文字]
+    forbid: [影楼棚拍感, 强促销感元素, 文字/水印/二维码]
+  note_scene:
+    kind: photo
+    usage: main
+    intent: 使用中的真实瞬间
+    design: 生活场景中的使用瞬间（桌面 / 手边 / 居家），暖光、浅景深，主体占 40–55%
+    must: [商品实物清晰, 场景自然]
+    forbid: [文字/水印, 杂乱背景]
+  note_detail:
+    kind: photo
+    usage: main
+    intent: 近距离呈现细节与质感
+    design: 微距或半身特写，浅景深，柔光；主体占 65–80%
+    must: [细节清晰, 背景干净]
+    forbid: [文字/水印]
+  main_selling_point:
+    kind: info
+    usage: main
+    layout: top_title_bullets
+    copy: [selling_points, features]
+    intent: 三秒讲清"凭什么买"
+    design: 顶部 13% 留出标题条区域；左侧与上方合计 ≥45% 为干净留白；
+      主体 3/4 微侧视角置于右下，占高约 55%，烫金细节可见
+    must: [商品实物完整可见（不得只出一块空白版面）, 留白区与商品区不重叠]
+    forbid: [任何文字/字母/数字/百分比, 图标标签, 指向性箭头]
+    keep_clear: 左侧与上方 ≥45% 纯净留白，供标题条 + 3–4 行条目排版；留白区内不得有图案、道具或主体穿过
+  main_benefits:
+    kind: info
+    usage: main
+    layout: benefit_grid
+    copy: [features, selling_points]
+    intent: 把特点/功效列成一眼能扫完的卡片
+    design: 右侧 40% 纵向留白供 2×2 卡片网格；主体正面略 3/4 置于左侧偏下、占高约 60%
+    must: [商品实物完整可见, 留白区足以容纳四张卡片]
+    forbid: [文字/数字/图标, 箭头与流程线, 器官病变图或药瓶等疗效暗示元素]
+    keep_clear: 右侧 ≥40% 纯净留白（卡片区），留白区内不得有图案干扰
+  main_ingredients:
+    kind: info
+    usage: main
+    layout: ingredient_list
+    copy: [ingredients]
+    intent: 让买家看清"配方里有什么"
+    design: 上半部留白供 3–5 行成分条目；下半部放商品；
+      可点缀与成分来源相关的原料实物（≤2 件，不遮挡主体）
+    must: [商品实物完整可见, 留白区充足且与商品区分开]
+    forbid: [化学分子式/结构图, 疗效箭头, 器官病变图, 文字/数字]
+    keep_clear: 上半部 ≥40% 纯净留白（成分条目区）
+  main_audience:
+    kind: info
+    usage: main
+    layout: audience_panel
+    copy: [target_audience, scene_suggestions]
+    intent: 让买家确认"这是给我这类人用的"
+    design: 上方 35% 留白供标题；下方留白供三栏说明；中部偏右放商品（3/4 视角、占高约 50%）；
+      左侧以极简生活物件轮廓（杯 / 眼镜 / 台灯）暗示情境，**不画人物**
+    must: [商品实物完整可见, 留白区充足]
+    forbid: [人物/人脸/手部, 文字/数字, 杂乱物件堆叠]
+    keep_clear: 上方 35% + 下方 ≥30% 纯净留白（标题条与三栏说明）
+  main_spec:
+    kind: info
+    usage: detail
+    layout: spec_table
+    copy: [spec, certifications]
+    intent: 把规格参数一次说清，减少客服问答
+    design: 一侧 ≥45% 留白供 4–6 行键值表；商品正面平视置于另一侧，占画面 45–55%
+    must: [商品实物完整可见, 留白区可容纳 4–6 行键值]
+    forbid: [文字/数字, 过密的表格线, 模糊的规格暗示（真实数值由系统排版填入）]
+    keep_clear: ≥45% 纯净留白（键值表区），行间可用极细分隔线
+  main_usage:
+    kind: info
+    usage: detail
+    layout: step_list
+    copy: [usage]
+    intent: 让买家知道怎么用、用多少
+    design: 左侧留白供 3–4 步竖向编号列表；右侧放商品与一粒胶囊作比例参照，占高约 55%
+    must: [商品实物完整可见, 留白区充足]
+    forbid: [文字/数字, 医疗操作场景, 人体部位图解]
+    keep_clear: 左侧 ≥40% 纯净留白（步骤区）
+  main_cert:
+    kind: info
+    usage: detail
+    layout: cert_badge
+    copy: [certifications]
+    intent: 用资质背书建立信任（内容只能来自真实包装）
+    design: 中部横向徽章条区域留白；商品置于一侧、占高约 50%；
+      整体端庄、对称感强、元素少而克制
+    must: [商品实物完整可见, 画面端庄且留白充足]
+    forbid: [臆造的认证标志, 国旗或官方徽章图形, 文字/数字]
+    keep_clear: ≥40% 纯净留白（1–3 条徽章条）
+  main_compare:
+    kind: info
+    usage: detail
+    layout: compare_two_column
+    copy: [compare]
+    intent: 用左右对比说明升级点或优势
+    design: 左右分栏留白（各 ≥35%），商品置于中轴或一侧、占高约 55%，
+      两栏之间可用极细竖线分隔
+    must: [商品实物完整可见, 左右留白对称]
+    forbid: [贬低或攻击性元素, 竞品品牌与包装, 文字/数字]
+    keep_clear: 左右各 ≥35% 纯净留白（两栏条目）
+  activity_banner:
+    kind: info
+    usage: main
+    layout: top_title_bullets
+    copy: [selling_points]
+    intent: 大促活动的横版主图（纯白、无文字）
+    design: 横版 750×352；主体居中偏右、占高 70%；左侧留白供活动文案排版
+    must: [纯白背景, 商品实物完整可见, 画面无文字]
+    forbid: [文字/角标/价格标签, 爆炸贴, 渐变底]
+    keep_clear: 左侧 ≥40% 纯净留白（活动文案区）
+
+platforms:
+  taobao:
+    label: 淘宝
+    aliases: [淘宝, tao, 淘宝网]
+    aspect: "1:1"
+    export_size: "800x800"
+    min_side: 800
+    max_images: 5
+    bg: "#FFFFFF"
+    background_policy: design_allowed
+    text_policy: composite
+    forbidden: [水印, 平台 logo, 拼接, 边框, 促销角标]
+    style: |
+      干净商业设计：纯白或极浅品牌色底，色系克制（白 + 品牌色 + 烫金），
+      主体居中、占比 85% 以上，一条横向品牌色带或极细线框作视觉节奏，
+      柔光精修、投影短而干净，留白有节奏，不堆砌道具。
+      促销文字与角标一律后期贴图，不写进生图提示词。
+    detail_style: |
+      信息版式底图：纯白或极浅品牌色底，干净留白区（≥40%）集中在指定区域，
+      主体置于对角或一角、完整可见，最多一条品牌色带作分隔，不做暗调与复杂装饰。
+    art_style: 干净商业设计：色系 ≤3 色、留白有节奏、几何元素克制、精修质感
+    slots: [main_white, main_selling_point, main_benefits, main_ingredients, main_audience]
+    detail_slots: [main_spec, main_usage, main_cert]
+    max_detail_images: 20
+    extra:
+      main_cert: {note: 保健品/化妆品等类目常用资质图，内容必须来自真实包装}
+
+  tmall:
+    label: 天猫
+    aliases: [天猫, 天猫商城, 淘宝天猫]
+    aspect: "1:1"
+    export_size: "800x800"
+    min_side: 800
+    max_images: 5
+    bg: "#FFFFFF"
+    background_policy: design_allowed
+    text_policy: composite
+    forbidden: [水印, 平台 logo, 拼接, 边框]
+    style: |
+      品牌旗舰设计感：纯白或极浅品牌色底，色系统一不超三色，留白充足（主体 70–85%），
+      柔光精修、材质细腻（烫金/哑光/通透各见其质），细线框或色带作克制点缀，
+      画面高级克制、无杂乱元素。促销信息后期贴图。
+    detail_style: |
+      高级版式底图：留白充足、色系不超过三色，可用极细线框分区，
+      主体置于一侧、完整可见，画面端庄克制。
+    art_style: 品牌旗舰：统一色系、充足留白、极简几何元素、高级克制
+    slots: [main_white, main_selling_point, main_benefits, main_ingredients, main_audience]
+    detail_slots: [main_spec, main_usage, main_cert]
+    max_detail_images: 20
+
+  pinduoduo:
+    label: 拼多多
+    aliases: [拼多多, pdd, 拼夕夕, 拼多多商城]
+    aspect: "1:1"
+    export_size: "800x800"
+    min_side: 480
+    max_images: 10
+    bg: "#FFFFFF"
+    background_policy: design_allowed
+    text_policy: none
+    forbidden: [logo, 水印, 文字, 模特, 拼接]
+    style: |
+      高明度大主体：纯白或品牌浅色设计底，主体大、居中或略偏、占画面 85% 以上，
+      色彩干净通透不脏（**不是靠高饱和堆料**），一条品牌色带或极浅渐层作视觉节奏，
+      柔光精修、投影短而干净，信息直给、不堆砌道具。
+      **白底主图 / 活动主图**画面内不得出现任何文字（拼多多审核硬规则）；
+      信息类图文版面（卖点/成分/人群/功效/规格）的文字由系统本地排版绘制，
+      这类图请给"可承载文字"的版式底图（≥40% 干净留白 + 商品元素），不要把字画进画面。
+    detail_style: |
+      信息直给版式：纯白或极浅品牌色底 + 大面积干净留白（≥45%）集中在指定区域，
+      主体置于右下或左下、完整可见，最多一条品牌色带点缀，明亮通透、不做暗调。
+    art_style: 高明度大主体：主体占比大、色彩干净不脏、几何元素克制、信息直给
+    slots: [main_white, main_selling_point, main_scene, main_ingredients, main_benefits, main_audience]
+    detail_slots: [main_spec, main_usage, main_cert, main_compare]
+    max_detail_images: 20
+    extra:
+      activity_banner: {aspect: "750x352", note: 百亿补贴/秒杀活动主图：纯白、无文字、长方形横图}
+
+  jd:
+    label: 京东
+    aliases: [jingdong, 京东商城]
+    aspect: "1:1"
+    export_size: "800x800"
+    min_side: 800
+    max_images: 5
+    bg: "#FFFFFF"
+    background_policy: white_preferred
+    text_policy: composite
+    forbidden: [水印, 平台 logo, 拼接, 边框]
+    style: |
+      规整品质感：纯白或极浅灰白底、正视图、柔光均匀，主体居中占比 85% 以上，
+      色系克制、细节清晰、行列对齐感强，像产品手册一样规整，不花哨。
+    detail_style: |
+      规整版式：留白规整、行列对齐，可用极细分隔线，主体置于一侧、完整可见，
+      整体像产品说明书的一页。
+    art_style: 规整品质：白底正视、色系克制、留白规整、行列对齐
+    slots: [main_white, main_selling_point, main_benefits, main_ingredients, main_audience]
+    detail_slots: [main_spec, main_usage, main_cert]
+    max_detail_images: 20
+
+  amazon:
+    label: Amazon
+    aliases: [亚马逊, amz, Amazon.com]
+    aspect: "1:1"
+    export_size: "2000x2000"
+    min_side: 1000
+    max_images: 9
+    bg: "#FFFFFF"
+    # 境外平台里白底要求最硬：主图必须纯白 RGB 255,255,255、主体占 85%、无任何装饰
+    background_policy: white_required
+    text_policy: none
+    forbidden: [水印, logo, 文字, 边框, 道具, 模特（主图）, 阴影过重]
+    style: |
+      纯白背景（RGB 255,255,255）专业商业摄影：产品占画面 85% 以上，
+      柔和均匀布光、真实材质、无道具无文字无边框无水印，
+      画面里只能出现商品本身。主图必须是商品正面或 45° 视角的真实形态。
+    detail_style: |
+      次要图位可用信息版式：干净留白版图，主体完整可见，
+      **画面内不出现文字**（文字由系统本地排版绘制）。
+    art_style: 纯白规整：无任何装饰元素，只有商品本体
+    # 主图必须纯白无文字（平台硬规则）；卖点/成分等图文版面放**次要图位**（允许文字）
+    slots: [main_white]
+    detail_slots: [main_scene, main_detail, main_selling_point, main_benefits, main_spec]
+    max_detail_images: 8
+
+  xiaohongshu:
+    label: 小红书
+    aliases: [小红书, redbook, xhs, 薯]
+    aspect: "3:4"
+    export_size: "1242x1656"
+    min_side: 720
+    max_images: 9
+    bg: ""
+    background_policy: design_allowed
+    text_policy: composite
+    forbidden: [水印, 平台 logo, 二维码]
+    style: |
+      生活方式种草图：真实生活场景（原木桌面/布纹/窗边/居家），温暖自然光、柔和暖调、
+      浅景深与氛围感，构图自然不做作，竖版 3:4。
+      保留真实使用痕迹的亲切感，避免影楼棚拍感与强促销感。
+    detail_style: |
+      笔记图文版式：柔光生活底（布纹/原木/浅色墙面），留白区用色块或浅色区域承载，
+      主体完整可见，克制不做作。
+    art_style: 柔光生活：暖调、布纹或原木质感、浅景深、氛围克制
+    slots: [note_cover, note_scene, note_detail]
+
+  douyin:
+    label: 抖音
+    aliases: [抖店, tiktok, douyin, 抖音小店]
+    aspect: "1:1"
+    export_size: "800x800"
+    min_side: 600
+    max_images: 9
+    bg: "#FFFFFF"
+    background_policy: design_allowed
+    text_policy: composite
+    forbidden: [水印, 平台 logo, 二维码]
+    style: |
+      短视频帧质感：高明度、色彩活泼但不脏，构图有轻微动势（微倾斜或斜向色带），
+      主体突出、色彩年轻化，背景干净或纯白，画面有"正被展示"的感觉。
+      文字后期贴图。
+    detail_style: |
+      明亮版式：大面积留白 + 一条活泼色带，主体完整可见，色彩明快但不刺眼。
+    art_style: 明亮年轻：高明度、色彩活泼不脏、构图有动势
+    slots: [main_white, main_selling_point, main_scene]
+    detail_slots: [main_benefits, main_ingredients, main_spec]
+    max_detail_images: 20
+
+  shopify:
+    label: Shopify
+    aliases: [独立站, shopify独立站]
+    aspect: "1:1"
+    export_size: "2048x2048"
+    min_side: 800
+    max_images: 8
+    bg: "#FFFFFF"
+    background_policy: design_allowed
+    text_policy: none
+    forbidden: [水印, logo, 文字, 边框, 二维码]
+    style: |
+      国际化品牌静物：极简，纯白或极浅灰径向渐层底，柔和扩散光、干净投影，
+      主体居中、占画面 70–85%，质感细腻，克制的奢侈品式调性，大量留白。
+    detail_style: |
+      极简版式：白或浅灰底、大留白，主体置于一侧，只有极少的几何元素。
+    art_style: 极简品牌静物：大留白、柔和扩散光、奢侈品式克制
+    slots: [main_white, main_scene, main_detail]
+    detail_slots: [main_selling_point, main_ingredients, main_spec]
+    max_detail_images: 20
+
+  shopee:
+    label: Shopee
+    aliases: [虾皮, shopee东南亚]
+    aspect: "1:1"
+    export_size: "1024x1024"
+    min_side: 500
+    max_images: 9
+    bg: "#FFFFFF"
+    background_policy: design_allowed
+    text_policy: composite
+    forbidden: [水印, 平台 logo, 二维码]
+    style: |
+      明亮活泼：白底或浅色设计底、色彩鲜艳干净，主体占比大（90% 以上），
+      布光饱满通透、暖色调，风格亲切直白，适合东南亚市场偏好。
+    detail_style: |
+      明亮版式：浅色底 + 干净留白，主体完整可见，色彩明快。
+    art_style: 明亮活泼：主体大、色彩鲜艳但不脏、暖调通透
+    slots: [main_white, main_scene, main_detail]
+
+  1688:
+    label: 1688
+    aliases: [阿里巴巴1688, 1688批发]
+    aspect: "1:1"
+    export_size: "800x800"
+    min_side: 750
+    max_images: 5
+    bg: "#FFFFFF"
+    background_policy: white_preferred
+    text_policy: composite
+    forbidden: [水印, 平台 logo, 二维码]
+    style: |
+      清晰直给：白底或极浅灰底实拍感，正面与 45° 视角为主，
+      弱化装饰与氛围修饰，突出商品本体与规格，细节真实清晰。
+    detail_style: |
+      清晰版式：白底 + 规整留白，主体完整可见，弱化装饰。
+    art_style: 清晰直给：白底实拍、弱化装饰、突出本体
+    slots: [main_white, main_selling_point, main_scene, main_detail, main_spec]

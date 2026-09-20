@@ -13,8 +13,6 @@ from typing import Optional
 
 from src.workflow.models import WorkflowJob, StepRecord, JobStatus, StepStatus
 
-_DB_PATH = Path(__file__).parent.parent.parent / "data" / "workflow.db"
-
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
     job_id TEXT PRIMARY KEY,
@@ -144,7 +142,10 @@ def _step_from_row(row) -> StepRecord:
         outputs=json.loads(row["outputs_json"] or "{}"),
         error=row["error"] or "",
         elapsed_ms=row["elapsed_ms"] or 0.0,
-        cost_usd=row["cost_usd"] or 0.0,
+        # 步骤 cost_usd 仍是 REAL 列（**不加列**：本库只有 CREATE TABLE IF NOT EXISTS，
+        # 没有迁移机制，老库不会加列）。"价格未标定"的事实存在 outputs_json 的
+        # `cost_unknown`/`usage` 里，报表与界面据此显示"另有 N 次未标定"。
+        cost_usd=row["cost_usd"] if row["cost_usd"] is not None else 0.0,
         started_at=_parse_dt(row["started_at"]),
         finished_at=_parse_dt(row["finished_at"]),
     )
@@ -154,7 +155,17 @@ class JobStore:
     """Workflow 持久化：job / step / event"""
 
     def __init__(self, db_path: Path | None = None):
-        self.db_path = Path(db_path) if db_path else _DB_PATH
+        self._explicit_db_path = Path(db_path) if db_path else None
+
+    @property
+    def db_path(self) -> Path:
+        """SQLite 路径：显式注入优先；否则 data_root()/workflow.db。
+
+        第三轮审计 B2-18：默认值在使用时解析（此前是模块级常量，import 期就锁定
+        了真实 data/ 目录，测试无法重定向）。
+        """
+        from src.core.config import data_root
+        return self._explicit_db_path or (data_root() / "workflow.db")
 
     # ── job ──
 
@@ -448,6 +459,9 @@ class JobStore:
         - 条目耗时取自关联 job 的 created_at → updated_at（无 job 的死信项不计入）
         - 失败原因归一化：取错误文本首个冒号前的前缀（如"必填输入缺失: xxx" → "必填输入缺失"）
         - tenant_id 为空时统计全部租户（管理视角），否则仅统计该租户
+        - **金额口径**：`total_cost_usd` 是"已标定部分"的合计；步骤 `cost_usd` 只存已标定
+          金额（NULL/0 无法区分），未标定的次数存在 `outputs_json` 的 `cost_unknown`，
+          这里单独汇总成 `unknown_cost_calls` 并在界面分行显示（"已标定 ¥x ｜ 另有 N 次未标定"）
         """
         def _do():
             with _connect(self.db_path) as conn:
@@ -458,7 +472,12 @@ class JobStore:
                 ).fetchall()
                 rows = conn.execute(
                     f"""SELECT b.template_name, i.seq, i.status AS i_status, i.error,
-                               j.cost_so_far, j.created_at AS j_created, j.updated_at AS j_updated
+                               j.cost_so_far, j.created_at AS j_created, j.updated_at AS j_updated,
+                               COALESCE((
+                                   SELECT COUNT(*) FROM steps s
+                                   WHERE s.job_id = j.job_id
+                                     AND s.outputs_json LIKE '%"cost_unknown": true%'
+                               ), 0) AS unknown_steps
                         FROM batches b
                         LEFT JOIN batch_items i ON i.batch_id = b.batch_id
                         LEFT JOIN jobs j ON j.job_id = i.job_id AND i.job_id != ''
@@ -470,6 +489,7 @@ class JobStore:
             # ── 聚合 ──
             item_count = succeeded = failed = pending_or_running = 0
             total_cost = 0.0
+            unknown_cost_calls = 0
             durations_ms: list[float] = []
             template_map: dict[str, dict] = {}
             reason_map: dict[str, int] = {}
@@ -486,7 +506,7 @@ class JobStore:
                 tpl = r["template_name"]
                 t = template_map.setdefault(tpl, {
                     "item_count": 0, "succeeded": 0, "failed": 0,
-                    "total_cost_usd": 0.0, "durations_ms": [],
+                    "total_cost_usd": 0.0, "unknown_cost_calls": 0, "durations_ms": [],
                 })
                 item_count += 1
                 t["item_count"] += 1
@@ -506,6 +526,9 @@ class JobStore:
                 cost = r["cost_so_far"] or 0.0
                 total_cost += cost
                 t["total_cost_usd"] += cost
+                unknown_steps = int(r["unknown_steps"] or 0)
+                unknown_cost_calls += unknown_steps
+                t["unknown_cost_calls"] += unknown_steps
 
                 # 审计修复：仅终态条目计入耗时分布（running 条目的 job 时间戳是部分耗时）
                 jc, ju = _parse_dt(r["j_created"]), _parse_dt(r["j_updated"])
@@ -527,7 +550,9 @@ class JobStore:
                     "succeeded": t["succeeded"],
                     "failed": t["failed"],
                     "success_rate": _rate(t["succeeded"], t["failed"]),
+                    # 已标定部分与"另有 N 次未标定"分开（用户口径：未标定不显示金额）
                     "total_cost_usd": round(t["total_cost_usd"], 6),
+                    "unknown_cost_calls": t["unknown_cost_calls"],
                     "avg_duration_ms": _avg(t["durations_ms"]),
                 }
                 for name, t in sorted(template_map.items())
@@ -558,6 +583,7 @@ class JobStore:
                     "pending_or_running": pending_or_running,
                     "success_rate": _rate(succeeded, failed),
                     "total_cost_usd": round(total_cost, 6),
+                    "unknown_cost_calls": unknown_cost_calls,
                     "avg_item_duration_ms": _avg(durations_ms),
                 },
                 "batch_status": batch_status,

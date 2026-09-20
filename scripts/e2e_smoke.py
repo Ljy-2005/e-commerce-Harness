@@ -11,10 +11,14 @@
 
 用法：
   python scripts/e2e_smoke.py                    # 自动启动前后端（Mock 模式），跑全部场景
-  python scripts/e2e_smoke.py --existing         # 复用已在运行的服务
+  python scripts/e2e_smoke.py --existing         # 复用已在运行的服务（不会停止/清理它）
   python scripts/e2e_smoke.py --scenarios S1,S2  # 只跑指定场景
   python scripts/e2e_smoke.py --real             # 允许真实模式（超时放宽，S1 产出物按 Mock 断言可能不稳）
-  python scripts/e2e_smoke.py --base-url http://127.0.0.1:8002 --frontend-url http://localhost:5174
+  python scripts/e2e_smoke.py --existing --base-url http://127.0.0.1:8002 --frontend-url http://localhost:5174
+
+端口语义（第三轮审计 B2-17）：
+  自动模式要求 8000/5173 空闲，否则明确拒绝（不"认领"别人已在跑的服务）；
+  自定义端口只支持 --existing 复用；收尾只清理本次自己启动的端口。
 
 退出码：0 全部通过；1 有失败；2 前置条件不满足（如真实模式未加 --real）
 """
@@ -24,9 +28,11 @@ import base64
 import io
 import json
 import os
+import re
 import socket
 import sys
 import time
+import urllib.parse
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -36,6 +42,9 @@ import httpx  # noqa: E402
 from PIL import Image  # noqa: E402
 
 PASS, FAIL = "✅ PASS", "❌ FAIL"
+
+# 自动启动模式的默认端口（vite 代理硬编码后端 8000，见 frontend/vite.config.js）
+_DEFAULT_BACKEND_PORT, _DEFAULT_FRONTEND_PORT = 8000, 5173
 
 # Windows GBK 控制台兜底：强制 UTF-8 输出（emoji/中文）
 for _stream in (sys.stdout, sys.stderr):
@@ -62,6 +71,28 @@ _PROVIDER_KEY_ENVS = [
     "VOLCANO_ACCESS_KEY", "VOLCANO_SECRET_KEY", "DASHSCOPE_API_KEY",
     "BFL_API_KEY", "FAL_KEY", "REPLICATE_API_KEY",
 ]
+
+
+def _provider_key_envs() -> list[str]:
+    """需要清空的凭据变量 = 硬编码清单 ∪ **config/secrets.yaml 里的全部键**
+
+    实测踩坑：硬编码清单漏了后加的 `ARK_API_KEY`（方舟路由是后来才有的），
+    于是用户保存过方舟 Key 后，`secrets.yaml` 会把真实 Key 注入子进程 →
+    Mock 确定性预检直接拒绝运行（预检本身是对的，但脚本就再也跑不起来了）。
+
+    直接从注入源（secrets.yaml）取键名，之后无论再加多少服务商都不会漏。
+    """
+    envs = set(_PROVIDER_KEY_ENVS)
+    try:
+        secrets_file = Path(__file__).resolve().parent.parent / "config" / "secrets.yaml"
+        if secrets_file.exists():
+            import yaml
+            data = yaml.safe_load(secrets_file.read_text(encoding="utf-8")) or {}
+            if isinstance(data, dict):
+                envs.update(str(key) for key in data)
+    except Exception:  # noqa: BLE001 — 取不到就退回硬编码清单
+        pass
+    return sorted(envs)
 
 ADMIN_KEY_ENV = "ECOMM_API_KEY"
 
@@ -116,6 +147,83 @@ class E2E:
         missing = [k for k in ("analysis", "prompts", "images", "review", "compliance") if k not in arts]
         self.check("S1 产出物齐全", not missing, f"missing={missing or '无'}")
         self.check("S1 轮次充足", d.get("turn_count", 0) >= 6, f"turns={d.get('turn_count')}")
+
+        # ── 本轮新增的交付物契约（用户三点反馈） ──
+        # ① 商品身份卡：品牌/品名必须被识别并**醒目提醒**（未确认时也不得让模型编文字）
+        identity = arts.get("product_identity") or {}
+        self.check("S1 商品身份卡存在",
+                   identity.get("status") in ("confirmed", "uncertain") and "source" in identity,
+                   f"status={identity.get('status')} source={identity.get('source')}")
+        # ② 套图编排 + 覆盖度：交付物是"一整套"，不是"一张图的多个候选"
+        coverage = arts.get("set_plan_coverage") or {}
+        images = arts.get("images") or []
+        self.check("S1 套图编排存在", bool(arts.get("set_plan")),
+                   f"slots={len((arts.get('set_plan') or {}).get('slots') or [])}")
+        self.check("S1 套图覆盖完整",
+                   bool(coverage.get("expected")) and coverage.get("complete") is True,
+                   f"coverage={coverage}")
+        self.check("S1 每张图带槽位",
+                   bool(images) and all(img.get("slot_id") for img in images),
+                   f"slots={[img.get('slot_id') for img in images]}")
+        # ③ 落盘文件名带槽位（导出的 ZIP 即一套可上传的图）
+        names = [str(img.get("saved_path") or "").split("/")[-1] for img in images]
+        self.check("S1 落盘名含槽位",
+                   bool(names) and all(any(slot in name for slot in
+                                           [str(img.get("slot_id")) for img in images])
+                                       for name in names),
+                   f"names={names[:3]}")
+        # ④ 本地体检：客观指标入产物（背景白度/水印/身份相似度）。
+        # 注意：Mock 出的是 **SVG 占位图**，Pillow 无法解码 → usable 计数为 0 属预期；
+        # 这里断言"体检通道确实跑了并写了结论"，真实图的数值由 Phase 6 真机验证与单测覆盖。
+        quality = arts.get("quality_report") or {}
+        self.check("S1 本地体检入产物",
+                   "count" in quality and "issues" in quality and "white_bg_ok" in quality,
+                   f"count={quality.get('count')}（Mock 为 SVG 占位图，无法体检属预期）"
+                   f" white_bg_ok={quality.get('white_bg_ok')}")
+        # ⑤ 文+图双条件：生图参数里必须记录参考图张数（Mock 下为 0 也要有字段）
+        params = (images[0].get("generation_params") or {}) if images else {}
+        self.check("S1 生图参数可复盘",
+                   "reference_count" in params and "text_strategy" in params,
+                   f"params={ {k: params.get(k) for k in ('reference_count', 'text_strategy')} }")
+        # ⑥ 提示词阶段（2026-09-18 用户反馈）：体检 + 审美审核都要落进产物；
+        #    逐张提示词要能被用户看到（第N张 + 完整文本，不再截 200 字）
+        lint = arts.get("prompt_lint") or {}
+        review = arts.get("prompt_review") or {}
+        self.check("S1 提示词体检入产物",
+                   "checked" in lint and "errors" in lint and "digest" in lint,
+                   f"checked={lint.get('checked')} errors={len(lint.get('errors') or [])}")
+        self.check("S1 提示词审核有结论",
+                   review.get("status") in ("reviewed", "mock", "skipped", "disabled", "error"),
+                   f"status={review.get('status')} verdict={review.get('verdict')}")
+        first_prompt = str((images[0] or {}).get("prompt_text") or "") if images else ""
+        self.check("S1 逐张提示词可读",
+                   first_prompt.startswith("第") and "【必须】" in first_prompt,
+                   f"chars={len(first_prompt)} head={first_prompt[:24]}")
+        # ⑦ 风格档案（A79-A96，用户指定的「风格词库」）：逐槽位命中要落进产物，
+        #    否则前端"🎨 采用风格档案"整行没数据（Mock 路径也必须算 —— 本轮自查 #9）
+        style_refs = (arts.get("prompts") or {}).get("style_refs") or {}
+        self.check("S1 风格档案入产物",
+                   style_refs.get("enabled") is True and bool(style_refs.get("entries")),
+                   f"enabled={style_refs.get('enabled')} entries={len(style_refs.get('entries') or [])}")
+        self.check("S1 风格档案逐槽位命中",
+                   bool(style_refs.get("slots")) and
+                   all(style_refs["slots"].get(slot.get("slot_id"))
+                       for slot in (arts.get("set_plan") or {}).get("slots") or []),
+                   f"slots={ {k: [i.get('name') for i in v] for k, v in (style_refs.get('slots') or {}).items()} }")
+        self.check("S1 风格档案有可读摘要",
+                   "采用风格档案" in str(style_refs.get("message") or ""),
+                   f"message={style_refs.get('message')}")
+        # 一轮会话一个风格词（A97，用户 2026-09-20）：每张**只注入一条**，且要能看到
+        # 哪几张"只按槽位契约写"（严格模式下参考套图没覆盖的槽位不塞第二个风格）
+        max_picked = max((len(v) for v in (style_refs.get("slots") or {}).values()), default=0)
+        self.check("S1 每张只用一种风格",
+                   max_picked <= 1 and style_refs.get("strict_single") is not False,
+                   f"max_entries={style_refs.get('max_entries')} max_picked={max_picked}")
+        # 套图结构（A98，Mock 演示数据也要落进产物，否则前端整行没数据）
+        self.check("S1 套图结构入产物",
+                   bool(style_refs.get("sequence")) and bool(style_refs.get("coverage")),
+                   f"sequence={len(style_refs.get('sequence') or [])} "
+                   f"coverage={len(style_refs.get('coverage') or [])}")
 
     # ── S2 工作流 approval_matrix ──
 
@@ -250,11 +358,72 @@ class E2E:
         r2 = httpx.get(f"{self.frontend}/health", timeout=30)
         self.check("S7 前端代理 /health", r2.status_code == 200 and "healthy" in r2.text, f"HTTP {r2.status_code}")
 
+    # ── S8 风格词库（A79-A96：用户指定的「风格词库」页面链路）──
+
+    def s8_style_library(self):
+        """建词条 → 分析（Mock：$0）→ 列表/详情 → 预览 → 停用 → 删除
+
+        注意：Mock 模式下「风格档案员」返回**模板词条**（$0，不联网），所以这条场景零成本。
+        """
+        listing = self.c.get("/api/style-library")
+        self.check("S8 词库列表可用", listing.status_code == 200, f"HTTP {listing.status_code}")
+        data = listing.json()
+        self.check("S8 内置档案齐备", len(data.get("builtin") or []) >= 8,
+                   f"builtin={len(data.get('builtin') or [])}")
+        self.check("S8 统计含开关与上限",
+                   "enabled" in (data.get("stats") or {}) and "max_entries" in (data["stats"]),
+                   f"stats={ {k: data.get('stats', {}).get(k) for k in ('enabled', 'max_entries')} }")
+
+        preview = self.c.get("/api/style-library/preview?platform=taobao&slot=main_white")
+        self.check("S8 零成本预览", preview.status_code == 200 and "适用风格档案" in preview.json()["block"],
+                   f"HTTP {preview.status_code} chars={len(preview.json().get('block') or '')}")
+
+        created = self.c.post("/api/style-library",
+                              data={"name": "E2E 冒烟风格"},
+                              files=[("files", ("style.jpg", make_test_image(), "image/jpeg"))])
+        self.check("S8 建词条", created.status_code == 200, f"HTTP {created.status_code}")
+        if created.status_code != 200:
+            return
+        entry = created.json()["entry"]
+        eid = entry["id"]
+        self.check("S8 用量前置（金额未标定不编数）",
+                   created.json()["estimate"]["amount"] is None
+                   and created.json()["estimate"]["images"] == 1,
+                   f"estimate={created.json().get('estimate')}")
+        try:
+            detail = self.poll(lambda: self.c.get(f"/api/style-library/{eid}").json()["entry"],
+                               lambda item: item["status"] in ("ready", "failed"),
+                               "风格分析完成")
+            self.check("S8 分析完成（Mock 为模板词条）", detail["status"] == "ready",
+                       f"status={detail['status']} error={detail.get('error')}")
+            self.check("S8 逐字段可编辑所需字段齐全",
+                       bool(detail.get("background")) and bool(detail.get("taste_verdict")),
+                       f"background={bool(detail.get('background'))} verdict={bool(detail.get('taste_verdict'))}")
+            self.check("S8 事实中立（无商标符号/色值）",
+                       "®" not in json.dumps(detail, ensure_ascii=False)
+                       and not re.search(r"#[0-9A-Fa-f]{6}", json.dumps(detail, ensure_ascii=False)),
+                       "词条文本应不含 ® 或 #RRGGBB")
+            edited = self.c.patch(f"/api/style-library/{eid}",
+                                  json={"name": "E2E 冒烟风格（改名）", "as_anchor": False})
+            self.check("S8 编辑词条", edited.status_code == 200
+                       and edited.json()["entry"]["name"].endswith("（改名）"),
+                       f"HTTP {edited.status_code}")
+            stopped = self.c.patch(f"/api/style-library/{eid}", json={"enabled": False})
+            self.check("S8 停用词条", stopped.status_code == 200
+                       and stopped.json()["entry"]["enabled"] is False,
+                       f"HTTP {stopped.status_code}")
+        finally:
+            removed = self.c.delete(f"/api/style-library/{eid}")
+            self.check("S8 删除词条", removed.status_code == 200, f"HTTP {removed.status_code}")
+        gone = self.c.get(f"/api/style-library/{eid}")
+        self.check("S8 删除后不可见", gone.status_code == 404, f"HTTP {gone.status_code}")
+
     # ── 调度 ──
 
     SCENARIOS = {
         "S1": s1_group_chat, "S2": s2_workflow, "S3": s3_batch,
         "S4": s4_memory_audit, "S5": s5_settings, "S6": s6_auth, "S7": s7_frontend,
+        "S8": s8_style_library,
     }
 
     def run(self, selected: list[str]):
@@ -295,10 +464,15 @@ def ensure_mock(e2e: E2E) -> bool:
         return False
 
 
-def _stop_children(children: list) -> None:
-    """停止全部子进程。Windows 下 npm→cmd→node 是多级孙进程，Popen 的 npm 包装
-    退出后后代会被重挂载——用 ctypes 按端口查监听 PID 直接 TerminateProcess
-    （进程内 API，不依赖 netstat/taskkill 等外部命令，受限环境也可靠）。"""
+def _stop_children(children: list, ports: list[int] | None = None) -> None:
+    """停止**本次冒烟自己启动**的子进程。Windows 下 npm→cmd→node 是多级孙进程，
+    Popen 的 npm 包装退出后后代会被重挂载——用 ctypes 按端口查监听 PID 直接
+    TerminateProcess（进程内 API，不依赖 netstat/taskkill 等外部命令，受限环境也可靠）。
+
+    第三轮审计 B2-17：`ports` 只传「本次确实由我们启动」的端口。此前无条件
+    `_kill_port_listeners([8000, 5173])`，`--existing`（复用已运行服务）也会把用户
+    自己的前后端杀掉；自动模式下端口若本就属于别的进程，同样会被误杀。
+    """
     for p in children:
         if p.poll() is None:
             try:
@@ -315,8 +489,51 @@ def _stop_children(children: list) -> None:
                 p.kill()
             except Exception:
                 pass
-    if os.name == "nt":
-        _kill_port_listeners([8000, 5173])
+    if os.name == "nt" and ports:
+        _kill_port_listeners(list(ports))
+
+
+def _port_in_use(port: int) -> bool:
+    """端口是否已有监听者（IPv4 + IPv6 双探：vite 默认绑 ::1，只探 127.0.0.1 会漏）"""
+    for family, host in ((socket.AF_INET, "127.0.0.1"), (socket.AF_INET6, "::1")):
+        try:
+            with socket.socket(family, socket.SOCK_STREAM) as s:
+                s.settimeout(0.4)
+                if s.connect_ex((host, port)) == 0:
+                    return True
+        except OSError:
+            continue
+    return False
+
+
+def _url_port(url: str, default: int) -> int:
+    try:
+        parsed = urllib.parse.urlparse(url)
+    except ValueError:
+        return default
+    return parsed.port or {"http": 80, "https": 443}.get(parsed.scheme, default)
+
+
+def _auto_mode_conflict(base_url: str, frontend_url: str, probe=_port_in_use) -> str:
+    """自动启动模式的前置校验：返回拒绝原因（空字符串 = 可以启动）。
+
+    第三轮审计 B2-17，两个静默陷阱：
+    1. 端口被占用时照常启动 → `backend_ready()` 的健康检查命中**别人**的服务，
+       脚本以为"就绪"，实际在验证另一个实例（可能配了真实 Key），收尾还会杀掉它；
+    2. `--base-url/--frontend-url` 在自动模式下被忽略 → 给自定义端口也照样起 8000/5173，
+       而 vite 代理硬编码 localhost:8000（`frontend/vite.config.js`）→ 前后端错配。
+    """
+    backend_port = _url_port(base_url, _DEFAULT_BACKEND_PORT)
+    frontend_port = _url_port(frontend_url, _DEFAULT_FRONTEND_PORT)
+    if backend_port != _DEFAULT_BACKEND_PORT or frontend_port != _DEFAULT_FRONTEND_PORT:
+        return (f"自动启动模式只支持默认端口（后端 {_DEFAULT_BACKEND_PORT} / 前端 {_DEFAULT_FRONTEND_PORT}），"
+                f"当前指定后端 {backend_port} / 前端 {frontend_port}。"
+                f"自定义端口请先自行启动服务，再用 --existing 复用。")
+    for label, port in (("后端", backend_port), ("前端", frontend_port)):
+        if probe(port):
+            return (f"自动启动模式要求端口空闲，但{label}端口 {port} 已被占用"
+                    f"（可能正是你正在使用的服务）。请先停止它，或改用 --existing 复用。")
+    return ""
 
 
 def _kill_port_listeners(ports: list[int]) -> None:
@@ -395,7 +612,7 @@ def main() -> int:
     parser.add_argument("--existing", action="store_true", help="复用已在运行的服务（默认自动启动）")
     parser.add_argument("--base-url", default="http://127.0.0.1:8000")
     parser.add_argument("--frontend-url", default="http://localhost:5173")
-    parser.add_argument("--scenarios", default="S1,S2,S3,S4,S5,S6,S7", help="逗号分隔的场景列表")
+    parser.add_argument("--scenarios", default="S1,S2,S3,S4,S5,S6,S7,S8", help="逗号分隔的场景列表")
     parser.add_argument("--timeout", type=int, default=120, help="单场景等待超时（秒）")
     parser.add_argument("--real", action="store_true", help="允许真实模式（不要求 Mock，断言可能不稳）")
     parser.add_argument("--admin-key", default="", help="管理 Key（默认读 ECOMM_API_KEY；S6 需要它执行租户 Key 轮换/删除）")
@@ -404,14 +621,23 @@ def main() -> int:
     admin_key = args.admin_key or os.getenv(ADMIN_KEY_ENV, "")
     e2e = E2E(args.base_url, args.frontend_url, args.timeout, admin_key=admin_key)
     started: list = []
+    owned_ports: list[int] = []   # 第三轮审计 B2-17：只清理本次真正启动的端口
 
     try:
         if not args.existing:
             import start as launcher  # noqa: PLC0415
+
+            # 第三轮审计 B2-17：先预检端口（被占用/自定义端口 → 明确拒绝，
+            # 不"认领"别人的服务，也不把别人的实例当成就绪）
+            conflict = _auto_mode_conflict(args.base_url, args.frontend_url)
+            if conflict:
+                print(f"❌ {conflict}")
+                return 2
+
             print("🚀 自动启动服务（确定性 Mock：清空 Provider Key + MOCK_MODE=true + 注入管理 Key）")
             # 备份并清空 Provider Key（防 secrets.yaml 注入真实 Key → Agent 走真实 API）
-            saved_env = {k: os.environ.get(k) for k in _PROVIDER_KEY_ENVS}
-            for k in _PROVIDER_KEY_ENVS:
+            saved_env = {k: os.environ.get(k) for k in _provider_key_envs()}
+            for k in _provider_key_envs():
                 os.environ[k] = ""
             os.environ["MOCK_MODE"] = "true"
             os.environ.setdefault(ADMIN_KEY_ENV, "e2e-admin-key-12345678")
@@ -420,20 +646,22 @@ def main() -> int:
             e2e.c.headers.update({"X-API-Key": admin_key})
 
             e2e.c.close()
-            backend = launcher.start_backend(8000)
+            backend = launcher.start_backend(_DEFAULT_BACKEND_PORT)
             started.append(backend)
+            owned_ports.append(_DEFAULT_BACKEND_PORT)
             # 子进程已继承环境，恢复父进程环境
             for k, v in saved_env.items():
                 if v is None:
                     os.environ.pop(k, None)
                 else:
                     os.environ[k] = v
-            if not launcher.wait_until(lambda: launcher.backend_ready(8000), "后端", timeout_s=args.timeout):
+            if not launcher.wait_until(lambda: launcher.backend_ready(_DEFAULT_BACKEND_PORT), "后端", timeout_s=args.timeout):
                 return 2
             e2e.c = httpx.Client(base_url=args.base_url, timeout=90, headers={"X-API-Key": admin_key})
-            frontend = launcher.start_frontend(5173)
+            frontend = launcher.start_frontend(_DEFAULT_FRONTEND_PORT)
             started.append(frontend)
-            if not launcher.wait_until(lambda: launcher.frontend_ready(5173), "前端", timeout_s=args.timeout):
+            owned_ports.append(_DEFAULT_FRONTEND_PORT)
+            if not launcher.wait_until(lambda: launcher.frontend_ready(_DEFAULT_FRONTEND_PORT), "前端", timeout_s=args.timeout):
                 return 2
 
         if not ensure_mock(e2e) and not args.real:
@@ -453,7 +681,8 @@ def main() -> int:
     finally:
         e2e.cleanup_sessions()
         e2e.c.close()
-        _stop_children(started)
+        # 只清理本次启动的进程/端口（--existing 复用模式下 owned_ports 为空 → 不碰用户的服务）
+        _stop_children(started, owned_ports)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,30 @@
+# 风格档案员 — 用户「风格词库」的核心 Agent（插件化注册：无需改动核心代码）
+#
+# 为什么是独立 Agent：它输出的是**可检索的设计档案 + 套图结构 + 审美判词**（字段与
+# config/style_library.yaml 的内置档案同一套 schema），不是「风格拆解员」那种通用风格要素。
+#
+# 张数与计费（用户 2026-09-19 质疑"为什么限定只能输入 6 张"）：
+#   - 单条词条最多 20 张（`style_store.MAX_PHOTOS`，单一来源）；
+#   - **单次**视觉调用 ≤ 12 张（`style_archivist.MAX_VISION_IMAGES`），超出**分批**：
+#     第 1 批出全量字段（共同美术 + 套图结构），后续批只补逐张角色；
+#   - **分批 = 多次调用 = 多次计费**，用量与金额按各批聚合（有一次没回报金额就整体不显示金额）；
+#   - 超时预算按批数放大（`timeout_budget()`），否则第二批会整轮超时。
+#
+# invitable: false —— **不参与群聊**。它由「风格词库」页面/脚本直接调用，中心决策者的
+# 「可用 Agent」名单里**不会出现它**（`coordinator._build_agent_list()` 过滤），
+# 所以协调者既看不到也不会邀请它（不给它"提这个名字"的上下文，也就没有额外 token 消耗）。
+# 引擎侧还有第二层兜底：名单外的邀请不会调用任何 Provider。
+name: 风格档案员
+description: 把用户导入的一组照片拆成风格档案（共同美术 + 套图结构 + 审美判词）
+version: "1.0.0"
+class: src.agents.style_archivist.StyleArchivistAgent
+requires: [vision]
+invitable: false
+prompt: prompts/style_archivist.yaml
+timeout_ms: 180000
+# 每次重试都会**再花一次视觉调用**的钱（分批时是"每批各一次"）：只允许 1 次，
+# 且失败原因要如实回到界面
+retry:
+  max_retries: 1
+  backoff: exponential
+params: []

@@ -20,23 +20,34 @@ async def setup():
 
 class TestConfidenceThreshold:
     @pytest.mark.asyncio
-    async def test_low_confidence_triggers_warning(self, setup, sample_image_base64):
-        """低置信度分析结果应触发警告消息"""
+    async def test_low_confidence_triggers_warning(self, setup, sample_image_base64, monkeypatch):
+        """低置信度分析结果应触发警告
+
+        （演示数据现在的中性置信度是 0，所以这里显式压到 30 来钉住阈值逻辑本身）
+
+        断言**产物里的持久标记**：会话变长后上下文压缩会把中段的群聊消息换成摘要
+        （套图从 3 张变 5 张后实测触发），届时消息级断言会随压缩消失；
+        而 `artifacts.analysis._low_confidence_warning` 是界面真正读取的信号。
+        """
+        from src.providers import mock as mock_mod
+        monkeypatch.setitem(mock_mod.MOCK_ANALYSIS, "confidence_score", 30.0)
         engine, session_mgr, registry = setup
         session = session_mgr.create(
             product_images=[sample_image_base64],
             platform="taobao",
         )
         result = await engine.run(session)
-        # 检查是否有低置信度警告
+        assert result["artifacts"]["analysis"].get("_low_confidence_warning") is True
         messages = result.get("messages", [])
         warnings = [m for m in messages if m.get("content", {}).get("hallucination_risk")]
-        # Mock 分析员置信度=85 → 不应触发警告
-        assert len(warnings) == 0
+        for warning in warnings:
+            assert "置信度" in warning["content"]["hallucination_risk"]
 
     @pytest.mark.asyncio
-    async def test_high_confidence_no_warning(self, setup, sample_image_base64):
+    async def test_high_confidence_no_warning(self, setup, sample_image_base64, monkeypatch):
         """高置信度不触发警告"""
+        from src.providers import mock as mock_mod
+        monkeypatch.setitem(mock_mod.MOCK_ANALYSIS, "confidence_score", 92.0)
         engine, session_mgr, registry = setup
         session = session_mgr.create(
             product_images=[sample_image_base64],
@@ -44,6 +55,10 @@ class TestConfidenceThreshold:
         )
         result = await engine.run(session)
         assert result["status"] == "completed"
+        assert not result["artifacts"]["analysis"].get("_low_confidence_warning")
+        warnings = [m for m in result.get("messages", [])
+                    if m.get("content", {}).get("hallucination_risk")]
+        assert warnings == []
 
 
 class TestCrossValidation:

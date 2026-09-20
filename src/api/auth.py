@@ -94,12 +94,26 @@ def authenticate_api_key(api_key: str) -> tuple[str, str]:
     if not api_key:
         return ("none", "")
     expected = os.getenv("ECOMM_API_KEY", "")
-    if expected and hmac.compare_digest(api_key, expected):  # 审计修复：时序安全比较
+    if expected and _safe_compare(api_key, expected):  # 审计修复：时序安全比较
         return ("admin", "")
     for tid, key in get_tenant_keys().items():
-        if hmac.compare_digest(api_key, key):
+        if _safe_compare(api_key, key):
             return ("tenant", tid)
     return ("none", "")
+
+
+def _safe_compare(candidate: str, expected: str) -> bool:
+    """hmac.compare_digest 的 ASCII 安全包装。
+
+    第二/三轮审计修复：`hmac.compare_digest` 对含非 ASCII 的 str 直接抛 TypeError
+    （HTTP 头只能承载 ASCII，这类 Key 永远无法认证）——此前一旦 `ECOMM_TENANT_KEYS`
+    或 tenant_keys.yaml 里写入非 ASCII Key，**所有**未匹配该条目的请求都会 500。
+    非 ASCII 的候选/期望值一律判为不匹配。
+    """
+    try:
+        return hmac.compare_digest(candidate, expected)
+    except TypeError:
+        return False
 
 
 def _set_scope_header(scope: dict, name: str, value: str) -> None:
@@ -170,10 +184,13 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if len(_AUTH_FAILURES[ip]) > _AUTH_MAX_FAILURES_PER_MINUTE:
             return JSONResponse(
                 status_code=429,
-                content={"error": "Too many authentication attempts. Retry later."},
+                # P3 补缺（test-plan L3）：全端点错误统一 {"detail": ...} 形态
+                content={"detail": "Too many authentication attempts. Retry later."},
             )
 
         return JSONResponse(
             status_code=401,
-            content={"error": message, "hint": "Set X-API-Key header or Authorization: Bearer <key>"},
+            content={
+                "detail": f"{message} — Set X-API-Key header or Authorization: Bearer <key>",
+            },
         )

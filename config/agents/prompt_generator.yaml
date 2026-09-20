@@ -3,7 +3,7 @@ description: 将分析结果转化为各平台各模型的生图提示词（主�
 version: "1.0.0"
 requires: [text]
 prompt: prompts/prompt_gen.yaml
-timeout_ms: 15000
+timeout_ms: 150000
 retry:
   max_retries: 3
   backoff: exponential

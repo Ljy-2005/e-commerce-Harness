@@ -139,6 +139,12 @@ class AgentMeta(BaseModel):
     prompt: str = ""                        # 引用的 System Prompt 文件路径
     params: list[dict] = Field(default_factory=list)  # 可配置参数
     class_name: str = ""                    # 插件化：实现类的完整路径（如 src.agents.style_analyst.StyleAnalystAgent）
+    # 是否参与群聊（中心决策者可以邀请）。
+    # `False` = 后台 Agent：由界面/脚本直接调用（如「风格档案员」）。
+    # 为什么要有这个字段：`_build_agent_list()` 会把注册表里的每个 Agent 写进协调者的系统提示，
+    # 名单里多一个"永远不该被邀请"的 Agent，就是**每一轮决策都多付一份 token**，
+    # 而且把名字塞进上下文反而可能诱导模型去提它。所以这类 Agent 直接**不出现在名单里**。
+    invitable: bool = True
 
 
 # ── 消息 ──

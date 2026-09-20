@@ -51,3 +51,39 @@ class TestReviewerAgent:
         # 验证 mock 数据包含迭代所需的基础字段
         assert result.get("dimension_scores")
         assert isinstance(result["dimension_scores"], dict)
+
+    # ── 用户审美锚点（A79-A96）──
+
+    def test_anchor_block_only_when_user_provided(self):
+        """锚点是**用户填的**：没填时审查头里不出现这一节（不能凭空替他定审美）"""
+        agent = ReviewerAgent()
+        session = {"task": {"platform": "taobao"}, "artifacts": {}}
+        assert agent._anchor_block(session, {}) == ""
+
+    def test_anchor_block_renders_user_verdict(self, monkeypatch):
+        import src.harness.style_library as sl
+
+        monkeypatch.setattr(sl, "load_library", lambda *args, **kwargs: {
+            "entries": [], "dropped": [], "defaults": {}, "exists": True,
+            "anchors": [{"id": "a1", "name": "冷白实验室感", "source": "用户锚点",
+                         "taste_verdict": "冷白留白、投影几乎不可见、边缘只留细窄高光",
+                         "reward_points": ["留白充足"], "avoid_points": ["暖黄调"],
+                         "applies_to": {"kinds": [], "slots": [], "not_slots": [],
+                                        "categories": [], "platforms": [],
+                                        "requires_policy": []}, "enabled": True}],
+        })
+        agent = ReviewerAgent()
+        session = {"task": {"platform": "taobao"}, "artifacts": {}}
+        block = agent._anchor_block(session, {})
+        assert "审美锚点" in block
+        assert "冷白实验室感" in block
+        assert "留白充足" in block
+
+    def test_anchor_block_failure_is_silent(self, monkeypatch):
+        """锚点取不到不能挡住审查"""
+        import src.harness.style_library as sl
+
+        monkeypatch.setattr(sl, "select_by_slot",
+                            lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+        agent = ReviewerAgent()
+        assert agent._anchor_block({"task": {}, "artifacts": {}}, {}) == ""

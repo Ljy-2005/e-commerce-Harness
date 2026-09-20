@@ -28,8 +28,14 @@ class AuditLogger:
     """
 
     def __init__(self, log_dir: str = ""):
-        self._dir = Path(log_dir) if log_dir else Path(__file__).parent.parent.parent / "data" / "audit"
+        self._explicit_dir = Path(log_dir) if log_dir else None
         self._dir.mkdir(parents=True, exist_ok=True)
+
+    @property
+    def _dir(self) -> Path:
+        """审计目录：显式注入优先；否则 data_root()/audit（B2-18：可被 ECOMM_DATA_DIR 重定向）"""
+        from src.core.config import data_root
+        return self._explicit_dir or (data_root() / "audit")
 
     def _today_file(self) -> Path:
         return self._dir / f"audit-{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.jsonl"
@@ -43,12 +49,18 @@ class AuditLogger:
         action: str,
         duration_ms: float,
         tokens_used: int,
-        cost_usd: float,
+        cost_usd: float | None,
         status: str,
         error: str = "",
         tenant_id: str = "",
+        cost_unknown: bool = False,
     ):
-        """记录一次审计条目（tenant_id 为租户隔离字段，审计修复）"""
+        """记录一次审计条目（tenant_id 为租户隔离字段，审计修复）
+
+        `cost_usd=None` = **该模型价格未标定**：JSONL 里写 `null`（不是 0），
+        并置 `cost_unknown: true`。此前 `round(None, 6)` 直接 TypeError，
+        被引擎的 try 吞掉 → 这次调用**整条审计丢失**。
+        """
         entry = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "session_id": session_id,
@@ -59,7 +71,8 @@ class AuditLogger:
             "action": action,
             "duration_ms": round(duration_ms, 2),
             "tokens": tokens_used,
-            "cost_usd": round(cost_usd, 6),
+            "cost_usd": None if cost_usd is None else round(float(cost_usd), 6),
+            "cost_unknown": bool(cost_unknown or cost_usd is None),
             "status": status,
         }
         if error:
@@ -121,10 +134,13 @@ class AuditLogger:
         return entries
 
     async def stats(self, date: str = "", tenant_id: str = "") -> dict:
-        """统计汇总（审计修复：支持租户过滤）"""
+        """统计汇总（审计修复：支持租户过滤；未标定金额不计入 total，另计 unknown_calls）"""
         entries = await self.query(date=date, tenant_id=tenant_id)
-        total_cost = sum(e.get("cost_usd", 0) for e in entries)
-        total_tokens = sum(e.get("tokens", 0) for e in entries)
+        # cost_usd 可能是 null（价格未标定）—— 求和时必须跳过，否则 TypeError。
+        # 跳过而不是当 0：把未知算成 0 会让"这一天的花费"看起来比实际少。
+        known = [e.get("cost_usd") for e in entries]
+        total_cost = sum(value for value in known if isinstance(value, (int, float)))
+        total_tokens = sum(e.get("tokens", 0) or 0 for e in entries)
         by_agent = {}
         for e in entries:
             agent = e.get("agent", "unknown")
@@ -134,6 +150,7 @@ class AuditLogger:
             "date": date or "all",
             "total_calls": len(entries),
             "total_cost_usd": round(total_cost, 6),
+            "unknown_calls": sum(1 for value in known if not isinstance(value, (int, float))),
             "total_tokens": total_tokens,
             "by_agent": by_agent,
         }

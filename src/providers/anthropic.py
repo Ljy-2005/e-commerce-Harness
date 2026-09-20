@@ -1,8 +1,10 @@
 """Anthropic Provider — Claude Vision + Text (Messages API)"""
 
 import os
-import json
-from src.providers.base import BaseLLMProvider
+from src.core.config import resolve_base_url
+from src.harness.pricing import estimate
+from src.providers.base import BaseLLMProvider, provider_error
+from src.providers.json_parse import parse_json_loose
 
 
 class AnthropicLLMProvider(BaseLLMProvider):
@@ -11,9 +13,18 @@ class AnthropicLLMProvider(BaseLLMProvider):
     name = "anthropic"
     capabilities = ["vision", "text"]
 
-    def __init__(self):
-        self.api_key = os.getenv("ANTHROPIC_API_KEY", "")
-        self.base_url = "https://api.anthropic.com/v1"
+    def __init__(self, api_key: str = "", base_url: str = "", name: str = "",
+                 capabilities: list[str] | None = None, label: str = "",
+                 max_tokens: int = 4096):
+        # 参数注入优先（自定义 Anthropic 兼容服务商走这条路），否则回落官方环境变量与端点
+        self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY", "")
+        self.base_url = base_url or resolve_base_url("anthropic", "https://api.anthropic.com/v1")
+        self.label = label or "Anthropic"
+        if name:
+            self.name = name
+        if capabilities:
+            self.capabilities = list(capabilities)
+        self.max_tokens = max_tokens
         self._api_version = "2023-06-01"
 
     async def chat(self, messages: list[dict], model: str = "claude-sonnet-4-20250514", json_mode: bool = False) -> dict:
@@ -26,7 +37,7 @@ class AnthropicLLMProvider(BaseLLMProvider):
 
         body = {
             "model": model,
-            "max_tokens": 4096,
+            "max_tokens": self.max_tokens,
             "messages": formatted,
         }
         if system:
@@ -38,32 +49,47 @@ class AnthropicLLMProvider(BaseLLMProvider):
             "Content-Type": "application/json",
         }
 
-        async with httpx.AsyncClient(timeout=90) as client:
+        async with httpx.AsyncClient(timeout=120) as client:
             resp = await client.post(
                 f"{self.base_url}/messages",
                 headers=headers,
                 json=body,
             )
             if resp.status_code != 200:
-                return {"error": f"Anthropic API error: {resp.status_code}"}
+                return provider_error(self.label, resp, self.base_url, self.api_key)
 
             data = resp.json()
-            text = data["content"][0]["text"]
-            tokens = data.get("usage", {}).get("input_tokens", 0) + data.get("usage", {}).get("output_tokens", 0)
+            usage = data.get("usage", {})
+            tokens = usage.get("input_tokens", 0) + usage.get("output_tokens", 0)
+            envelope = {
+                "tokens_used": tokens,
+                "tokens_in": usage.get("input_tokens", 0),
+                "tokens_out": usage.get("output_tokens", 0),
+                "cost_usd": self._estimate_cost(model, usage),
+            }
+
+            # 与 OpenAI 兼容链路同一套守卫：空内容/被 max_tokens 截断一律报错，
+            # 不再回落 {"text": ""} 让 Agent 静默空白（A32）
+            blocks = data.get("content") or []
+            text = ""
+            if isinstance(blocks, list):
+                for block in blocks:
+                    if isinstance(block, dict) and isinstance(block.get("text"), str):
+                        text += block["text"]
+            stop_reason = str(data.get("stop_reason") or "")
+            if not text.strip():
+                hint = "（stop_reason=max_tokens，输出被预算截断）" if stop_reason == "max_tokens" else \
+                       f"（stop_reason={stop_reason or '未知'}）"
+                return {"error": f"{self.label} 返回空内容{hint}：max_tokens={self.max_tokens}",
+                        **envelope}
 
             if json_mode:
-                try:
-                    content = json.loads(text)
-                except json.JSONDecodeError:
-                    content = {"raw": text}
+                parsed = parse_json_loose(text)
+                content = parsed if parsed is not None else {"raw": text}
             else:
                 content = {"text": text}
 
-            return {
-                "content": content,
-                "tokens_used": tokens,
-                "cost_usd": self._estimate_cost(model, data.get("usage", {})),
-            }
+            return {"content": content, **envelope}
 
     async def chat_with_vision(self, messages: list[dict], model: str = "claude-sonnet-4-20250514") -> dict:
         """Claude natively supports images in the Messages API"""
@@ -116,14 +142,15 @@ class AnthropicLLMProvider(BaseLLMProvider):
 
         return system, formatted
 
-    def _estimate_cost(self, model: str, usage: dict) -> float:
-        """Claude pricing per 1M tokens (input/output)"""
-        prices = {
-            "claude-sonnet-4-20250514": (3.0, 15.0),
-            "claude-opus-4-20250514": (15.0, 75.0),
-            "claude-haiku-3-5": (0.8, 4.0),
-        }
-        in_price, out_price = prices.get(model, (3.0, 15.0))
-        in_tokens = usage.get("input_tokens", 0)
-        out_tokens = usage.get("output_tokens", 0)
-        return round((in_tokens / 1_000_000) * in_price + (out_tokens / 1_000_000) * out_price, 6)
+    def _estimate_cost(self, model: str, usage: dict) -> float | None:
+        """查价（USD/1M tokens，input/output 分开）；**查不到返回 `None`**
+
+        此前写死 `prices.get(model, (3.0, 15.0))` —— 未知模型一律按 Sonnet 计价。
+        签名保持 `(model, usage)`（`anthropic.chat` 直接调用）。
+        """
+        usage = usage if isinstance(usage, dict) else {}
+        model = model or getattr(self, "_current_model", "") or "claude-sonnet-4-20250514"
+        result = estimate(getattr(self, "route", "") or "anthropic", model, "vision",
+                          {"tokens_in": usage.get("input_tokens", 0),
+                           "tokens_out": usage.get("output_tokens", 0)})
+        return result["amount"]

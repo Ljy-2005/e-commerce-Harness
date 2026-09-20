@@ -137,9 +137,24 @@ class ContextManager:
         summary = self._summarize(middle)
 
         compacted = list(head)
+        # 摘要消息必须与其它消息**同一套信封**（id/turn/timestamp/role/sender/action）：
+        # 此前只给 role+content（且 content 是字符串），前端拿不到 id 当 key、
+        # 也读不到 content 里的字段（实测：会话变长触发压缩后，测试立刻抓到结构不一致）
+        import uuid as _uuid
+        from datetime import datetime as _dt, timezone as _tz
         compacted.append({
+            "id": _uuid.uuid4().hex[:12],
+            "turn": int(middle[-1].get("turn") or 0) if middle else 0,
+            "timestamp": _dt.now(_tz.utc).isoformat(),
             "role": "system",
-            "content": f"[上下文压缩摘要 — {len(middle)} 条消息被压缩] {summary}",
+            "sender": "系统",
+            "action": "respond",
+            "content": {
+                "context_action": "compact",
+                "compacted_count": len(middle),
+                "summary": summary,
+                "message": f"[上下文压缩摘要 — {len(middle)} 条消息被压缩] {summary}",
+            },
         })
         # 裁剪 tail 中的 base64——只保留文本
         trimmed_tail = [self._strip_base64(m) for m in tail]

@@ -33,11 +33,12 @@ dispatch(request, call_next)
   5. 同一 IP 每分钟失败 > 10 次 → 429（防暴力破解）
 ```
 
-失败响应：
+失败响应（P3 统一为全端点一致的 `{"detail": ...}` 形态，2026-08-23）：
 
 ```
-401: {"error": "Invalid API Key", "hint": "Set X-API-Key header or Authorization: Bearer <key>"}
-429: {"error": "Too many authentication attempts. Retry later."}
+401: {"detail": "Missing API Key — Set X-API-Key header or Authorization: Bearer <key>"}
+401: {"detail": "Invalid API Key — Set X-API-Key header or Authorization: Bearer <key>"}
+429: {"detail": "Too many authentication attempts. Retry later."}
 ```
 
 IP 失败字典带膨胀清扫（`_AUTH_MAX_IP_ENTRIES=10000`，审计修复）。

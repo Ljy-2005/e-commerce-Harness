@@ -17,8 +17,10 @@ capabilities:
     fallback:
     - mock
   image:
-    default: seedream/seedream-5.0
+    default: ark/doubao-seedream-5-0-260128
     alternatives:
+    - ark/doubao-seedream-4-5-251128
+    - seedream/seedream-5.0
     - openai/dall-e-3
     - flux/flux.1-dev
     fallback:
@@ -26,3 +28,21 @@ capabilities:
 agent_overrides:
   提示词生成员:
     text: deepseek/deepseek-v4-flash
+  商品分析员:
+    vision: deepseek/deepseek-v4-flash
+  品类专项分析员:
+    vision: deepseek/deepseek-v4-flash-vision-exp
+  合规审查员:
+    vision: deepseek/deepseek-v4-flash-vision-exp
+  中心决策者:
+    text: deepseek/deepseek-v4-flash
+  生图员:
+    image: ark/doubao-seedream-5-0-260128
+  审查员:
+    vision: deepseek/deepseek-v4-flash-vision-exp
+  风格拆解员:
+    vision: deepseek/deepseek-v4-flash
+  # 「风格词库」的档案员（invitable: false，由界面/脚本直接调用）：
+  # 用它把用户导入的照片拆成文字档案 + 审美判词
+  风格档案员:
+    vision: deepseek/deepseek-v4-flash-vision-exp

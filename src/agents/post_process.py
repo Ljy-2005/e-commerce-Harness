@@ -10,7 +10,7 @@ class PostProcessAgent(BaseAgent):
     """本地图像处理：去背景（rembg）+ 可选增强，不需要 Provider"""
 
     meta_name = "图像后处理员"
-    timeout_ms = 60_000  # rembg 首次加载模型较慢
+    timeout_ms = 120_000  # rembg 首次加载模型较慢
 
     def __init__(self):
         super().__init__(provider=None)  # 纯本地处理，不需要 Provider

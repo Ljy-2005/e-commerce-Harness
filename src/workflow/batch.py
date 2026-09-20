@@ -217,9 +217,15 @@ class BatchScheduler:
     async def _process_item(self, batch_id: str, batch: dict, seq: int):
         items = await self.store.get_batch_items(batch_id)
         item = next(it for it in items if it["seq"] == seq)
+        runtime = self._runtimes.setdefault(batch_id, _BatchRuntime())
         last_error = ""
 
         for attempt in range(1 + MAX_ITEM_RETRIES):
+            # 第三轮审计 B0-4：批次已取消 → 不再起新一轮（此前会把 cancelled 当可重试
+            # 失败，新建 job 重跑全程）。留作死信，可经 retry_failed 显式续跑。
+            if runtime.cancelled:
+                await self._mark_dead_letter(batch_id, item, "批次已取消")
+                return
             item["status"] = ITEM_RUNNING
             item["attempts"] = attempt + 1
             item["updated_at"] = _now()
@@ -239,6 +245,11 @@ class BatchScheduler:
                     await self.store.update_batch_item(item)
                     await self.store.increment_batch(batch_id, done_delta=1)
                     return
+                if result.status.value == "cancelled":
+                    # 第三轮审计 B0-4：取消是**非失败终态**，重试它等于推翻用户取消
+                    # （实测 job 数 1→2 且最终记 succeeded）
+                    await self._mark_dead_letter(batch_id, item, "job 已取消（不再自动重试）")
+                    return
                 last_error = f"job 终态: {result.status.value}"
             except asyncio.CancelledError:
                 raise
@@ -246,8 +257,12 @@ class BatchScheduler:
                 last_error = str(e)[:300]
 
         # 重试耗尽 → 死信
+        await self._mark_dead_letter(batch_id, item, last_error)
+
+    async def _mark_dead_letter(self, batch_id: str, item: dict, error: str):
+        """标记为死信（可经 retry_failed 重跑）并计入 failed 计数"""
         item["status"] = ITEM_FAILED
-        item["error"] = last_error
+        item["error"] = error
         item["updated_at"] = _now()
         await self.store.update_batch_item(item)
         await self.store.increment_batch(batch_id, failed_delta=1)

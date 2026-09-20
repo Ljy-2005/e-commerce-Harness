@@ -196,6 +196,29 @@ class TestTenantKeyManagement:
                            json={"tenant_id": "tenant_a", "api_key": "short"})
         assert resp.status_code == 400
 
+    def test_non_ascii_key_rejected_400(self, monkeypatch):
+        """第二轮审计修复：非 ASCII Key 既无法认证、又会让 compare_digest 抛
+        TypeError 打穿认证链（所有请求 500），必须挡在保存入口"""
+        _set_keys(monkeypatch, {}, admin=ADMIN_KEY)
+        resp = client.post("/api/settings/tenant-keys",
+                           headers={"X-API-Key": ADMIN_KEY},
+                           json={"tenant_id": "tenant_a", "api_key": "密钥密钥密钥密钥密钥密钥密钥密钥"})
+        assert resp.status_code == 400
+        assert "ASCII" in resp.json()["detail"]
+        # 带空格的 Key 同样拒绝（HTTP 头不可承载）
+        resp = client.post("/api/settings/tenant-keys",
+                           headers={"X-API-Key": ADMIN_KEY},
+                           json={"tenant_id": "tenant_a", "api_key": "key with spaces 1234"})
+        assert resp.status_code == 400
+
+    def test_non_ascii_env_key_does_not_break_auth(self, monkeypatch):
+        """环境变量供给的非 ASCII Key 不能让认证链崩溃（降级为不匹配 → 401）"""
+        _set_keys(monkeypatch, {"tenant_a": "密钥密钥密钥密钥密钥密钥密钥密钥"}, admin=ADMIN_KEY)
+        # admin Key 正常放行
+        assert client.get("/api/sessions", headers={"X-API-Key": ADMIN_KEY}).status_code == 200
+        # 错误 Key → 401（此前是 500 Internal Server Error）
+        assert client.get("/api/sessions", headers={"X-API-Key": "wrong-key-12345678"}).status_code == 401
+
     def test_settings_payload_masks_keys(self, monkeypatch):
         """设置载荷只返回 configured 布尔与来源，绝不包含密钥内容"""
         _set_keys(monkeypatch, {"tenant_a": TENANT_A_KEY}, admin=ADMIN_KEY)

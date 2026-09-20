@@ -47,6 +47,10 @@ class _Runtime:
         self.step_outputs: dict[str, dict] = {}           # {node: outputs}（scope 用）
         self.artifacts: dict = {}                         # 会话 artifacts 镜像
         self.task: asyncio.Task | None = None
+        # 正在执行 run() 的任务（第三轮审计 B0-3：批量调度器直接 await run()，
+        # 不经过 start()，故 runtime.task 为空——用 runner 标记"谁在跑"，
+        # 否则 retry_step 会再起一个 run 造成同一 job 并发双跑）
+        self.runner: asyncio.Task | None = None
 
 
 class WorkflowEngine:
@@ -81,6 +85,10 @@ class WorkflowEngine:
         runtime = self._runtimes.setdefault(job.job_id, _Runtime())
         if runtime.task and not runtime.task.done():
             return runtime.task
+        if runtime.runner and not runtime.runner.done():
+            # 第三轮审计 B0-3：已有 run 在飞（批量调度器直接 await run 的路径）→
+            # 复用同一个 run，绝不另起一个（否则同一 job 双跑：步数与成本翻倍）
+            return runtime.runner
         runtime.task = asyncio.create_task(self.run(job))
         return runtime.task
 
@@ -156,6 +164,9 @@ class WorkflowEngine:
     async def run(self, job: WorkflowJob) -> WorkflowJob:
         job_id = job.job_id
         runtime = self._runtimes.setdefault(job_id, _Runtime())
+        # 第三轮审计 B0-3：登记「谁在跑」（start() 的任务，或批量调度器的工作任务）
+        current_task = asyncio.current_task()
+        runtime.runner = current_task
         snapshot = tpl_mod.get_snapshot(job)
         nodes = snapshot.get("nodes") or {}
         graph, start = tpl_mod.build_graph(nodes, snapshot.get("edges") or [], snapshot.get("start"))
@@ -176,7 +187,7 @@ class WorkflowEngine:
         for s in steps:
             if s.status == StepStatus.SUCCEEDED and s.outputs:
                 runtime.step_outputs[s.node] = s.outputs
-                self._update_artifacts(runtime, nodes.get(s.node) or {}, s.outputs)
+                await self._update_artifacts(job, runtime, nodes.get(s.node) or {}, s.outputs)
 
         job.status = JobStatus.RUNNING
         await self.store.update_job(job)
@@ -189,6 +200,8 @@ class WorkflowEngine:
                     job.status = JobStatus.CANCELLED
                     await self.store.update_job(job)
                     await self._emit(job_id, "job_cancelled")
+                    if runtime.runner is current_task:
+                        runtime.runner = None
                     self._runtimes.pop(job_id, None)  # 审计修复：终态清理
                     return job
 
@@ -253,6 +266,8 @@ class WorkflowEngine:
         # 审计修复：终态清理运行期镜像（_runtimes 不再无限增长；
         # 后续 retry_step/replicate/control 会按需 setdefault 重建）
         final = await self.store.get_job(job_id) or job
+        if runtime.runner is current_task:
+            runtime.runner = None
         if final.status in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED):
             self._runtimes.pop(job_id, None)
         return final
@@ -316,7 +331,11 @@ class WorkflowEngine:
                     raise RuntimeError(f"节点类型 '{ntype}' 暂未实现")
 
                 step.outputs = outputs
-                step.cost_usd = float(outputs.get("cost_usd", 0) or 0)
+                # 步骤 cost_usd 是 REAL 列（**不加库列**：本库只有 CREATE TABLE IF NOT EXISTS，
+                # 没有迁移机制）。已标定金额照写；"价格未标定"（None）写 0 并在
+                # outputs_json 里带 cost_unknown/usage 留痕，报表据此分行显示。
+                raw_cost = outputs.get("cost_usd")
+                step.cost_usd = float(raw_cost) if isinstance(raw_cost, (int, float)) else 0.0
                 step.status = StepStatus.SUCCEEDED
                 step.elapsed_ms = (time.monotonic() - t0) * 1000
                 step.finished_at = _now()
@@ -324,7 +343,7 @@ class WorkflowEngine:
                 await self._emit(job_id, "step_succeeded", {"node": node, "attempt": attempt + 1})
 
                 runtime.step_outputs[node] = outputs
-                self._update_artifacts(runtime, cfg, outputs)
+                await self._update_artifacts(job, runtime, cfg, outputs)
                 job.cost_so_far = await self._total_cost(job_id)
                 await self.store.update_job(job)
 
@@ -384,11 +403,17 @@ class WorkflowEngine:
         )
         engine = ChatEngine(registry=self.registry, session_manager=mgr, broadcaster=self.broadcaster)
         result = await engine.run(session)
+        cost_so_far = result.get("cost_so_far") or 0.0
+        unknown_calls = int(result.get("cost_unknown_calls") or 0)
         return {
             "status": result.get("status"),
             "artifacts": result.get("artifacts", {}),
             "messages_count": len(result.get("messages", [])),
-            "cost_usd": result.get("cost_so_far", 0.0),
+            # 金额只含已标定部分；另有 N 次未标定时单独回报（界面不显示 $0 冒充花费）
+            "cost_usd": cost_so_far,
+            "cost_unknown": unknown_calls > 0,
+            "cost_unknown_calls": unknown_calls,
+            "usage": {"images": len((result.get("artifacts") or {}).get("images") or [])},
             "session_id": session["session_id"],
         }
 
@@ -435,6 +460,14 @@ class WorkflowEngine:
                 # 决策尚未到达 → 无限等待（decision API 会 set human_event）
                 await runtime.human_event.wait()
                 action = runtime.human_action
+        # 竞态修复（实测 flake：同一测试类多跑几次约 25% 概率"拒绝被静默吞掉"）：
+        # 决策可能落在「WAITING_HUMAN 已落库 → 本函数进入等待」这段窗口内
+        # （窗口里还有 _emit 的落库与广播两个 await）。此时 human_action 已就绪，
+        # 上面 `if not runtime.human_action` 会跳过等待，而 action 仍是空串 →
+        # 路由回落默认边（= 批准），用户的 reject 被静默丢弃。
+        action = action or runtime.human_action
+        # 消费掉决策：否则同一 job 的后续 human 节点（或回跳重跑）会复用它
+        runtime.human_action = ""
         runtime.human_event = None
 
         step.outputs = {"decision": action, "sla_timeout": sla_used}
@@ -506,10 +539,15 @@ class WorkflowEngine:
             "turn_count": 0,
         }
 
-    def _update_artifacts(self, runtime, cfg, outputs: dict):
-        """按 Agent 产出键合并到 artifacts 镜像（与 ChatEngine 语义一致）"""
+    async def _update_artifacts(self, job: WorkflowJob, runtime, cfg, outputs: dict):
+        """按 Agent 产出键合并到 artifacts 镜像（与 ChatEngine 语义一致）
+
+        生成图同时落盘到可配置输出目录（用户反馈：没法设置导出路径）——
+        工作流里图属于 job，目录用 job_id 作会话段。
+        """
         if cfg.get("type") == "group_chat" and isinstance(outputs.get("artifacts"), dict):
             runtime.artifacts.update(outputs["artifacts"])
+            await self._export_images(job, runtime)
             return
         agent_name = cfg.get("agent", "")
         key = _ARTIFACT_KEYS.get(agent_name)
@@ -522,6 +560,35 @@ class WorkflowEngine:
             runtime.artifacts["analysis"] = merged
         else:
             runtime.artifacts[key] = outputs
+        if key == "images":
+            await self._export_images(job, runtime)
+
+    async def _export_images(self, job: WorkflowJob, runtime):
+        """把工作流当前生成图落盘（尽力而为，失败只告警）"""
+        container = runtime.artifacts.get("images")
+        images = container.get("images") if isinstance(container, dict) else container
+        if not isinstance(images, list) or not images:
+            return
+        try:
+            from src.storage.image_export import save_images
+            inputs = job.inputs or {}
+            analysis = runtime.artifacts.get("analysis") or {}
+            results = await save_images(
+                session_id=job.job_id,
+                tenant_id=job.tenant_id,
+                category=analysis.get("category") or inputs.get("category_hint", ""),
+                platform=inputs.get("platform", ""),
+                images=images,
+            )
+            for img, res in zip(images, results):
+                if not isinstance(img, dict):
+                    continue
+                if res.get("ok"):
+                    img["saved_path"] = res.get("rel_path", "")
+                else:
+                    img.pop("saved_path", None)   # 未落盘不留空字段（产物保持干净）
+        except Exception as e:  # noqa: BLE001 — 落盘失败不影响作业
+            _engine_logger.warning("工作流生成图落盘失败 (job=%s): %s", job.job_id, e, exc_info=True)
 
     def _needs_reset(self, runtime, target_node) -> bool:
         """目标节点已有成功产出 → 回跳循环，需要重置下游"""
@@ -583,6 +650,19 @@ class WorkflowEngine:
         job = await self.store.get_job(job_id)
         if job is None:
             raise ValueError("job 不存在")
+        runtime = self._runtimes.setdefault(job_id, _Runtime())
+        old_task = runtime.task
+        current_task = asyncio.current_task()
+        # 第三轮审计 B0-3：在飞 run 由外部驱动（批量调度器 `await run(job)`，
+        # runtime.task 为空）→ 取消会连累批量项状态机，不取消又会并发跑第二遍，
+        # 故明确拒绝。必须在任何状态变更之前判定，否则请求被拒但步骤已被重置。
+        foreign_runner = (
+            runtime.runner if (runtime.runner and not runtime.runner.done()
+                               and runtime.runner is not old_task
+                               and runtime.runner is not current_task) else None
+        )
+        if foreign_runner is not None and not (old_task and not old_task.done()):
+            raise ValueError("job 正在执行中（批量调度器驱动），请等待该步骤跑完或先暂停批次")
         steps = await self.store.get_steps(job_id)
         target = next((s for s in steps if s.node == step_node), None)
         if target is None:
@@ -592,21 +672,21 @@ class WorkflowEngine:
         job.context["retries"] = int(job.context.get("retries", 0)) + 1
         await self.store.update_job(job)
         await self._emit(job_id, "step_retrying", {"node": step_node})
-        runtime = self._runtimes.setdefault(job_id, _Runtime())
         for s in steps:
             if s.order >= target.order:
                 runtime.step_outputs.pop(s.node, None)
         # 审计修复：cancel 后必须先 await 旧任务完成再 start——
         # 此前 cancel() 后立即 start()，task.done() 仍为 False 导致复用旧 task，
         # job 被置 RUNNING 却无人执行（retry_step/replicate_style 后永久卡死）。
-        old_task = runtime.task
-        if old_task and not old_task.done():
+        if old_task and not old_task.done() and old_task is not current_task:
             old_task.cancel()
             try:
                 await old_task
             except (asyncio.CancelledError, Exception):
                 pass  # 旧任务按预期取消
         runtime.task = None  # 显式清空，start 必然创建新任务
+        if runtime.runner is old_task:
+            runtime.runner = None
         await self.start(job)
 
     async def skip_step(self, job_id: str, step_node: str):

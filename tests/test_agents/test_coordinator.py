@@ -79,3 +79,55 @@ class TestCoordinatorAgent:
         d2 = agent._mock_decision()
         d3 = agent._mock_decision()
         assert d3["action"] == "done", f"Expected done after 2 steps in ab_test, got {d3}"
+
+
+class TestCoordinatorArtifactVisibility:
+    """A35：协调者必须看得到"产物真实状态"
+
+    实测事故：`_build_user_prompt` 只给它最近 10 条消息（每条截断 200 字），
+    artifacts 完全不进 prompt → 生图员写了 3 条空图（url/base64 全空）它却宣布
+    "已确认生图员已完成 taobao 主图生成（variant_1）"，逼审查员对着不存在的图评分。
+    """
+
+    def _session(self, images):
+        return {
+            "session_id": "s1",
+            "task": {"platform": "taobao", "product_info": "肝迅康", "category_hint": "保健品"},
+            "messages": [],
+            "artifacts": {
+                "analysis": {"category": "保健食品", "confidence_score": 72},
+                "prompts": {"main_image": {"prompt": "白底主图" * 30},
+                            "scene_images": [{"prompt": "a"}, {"prompt": "b"}],
+                            "model_variants": {"dalle": "x"}},
+                "images": images,
+                "review": {"overall_score": None, "verdict": "retry",
+                           "needs_human_review": True,
+                           "review_blocked_reason": "no_image_accessible"},
+            },
+        }
+
+    def test_prompt_exposes_artifact_status(self):
+        session = self._session([{"prompt_name": "variant_1", "image_url": "https://cdn/a.png"}])
+        prompt = CoordinatorAgent()._build_user_prompt(session, "")
+
+        assert "产物状态" in prompt
+        assert "variant_1" in prompt or "1 张" in prompt
+        assert "retry" in prompt
+
+    def test_prompt_flags_unusable_images(self):
+        """实测现场：3 条图记录但没有任何可用图像数据"""
+        session = self._session([
+            {"prompt_name": f"variant_{i}", "image_url": "", "base64_data": ""} for i in (1, 2, 3)
+        ])
+        prompt = CoordinatorAgent()._build_user_prompt(session, "")
+
+        assert "可用 0 张" in prompt
+        assert "禁止" in prompt and "完成" in prompt
+
+    def test_system_prompt_keeps_memory_section(self):
+        """记忆段此前是死代码：YAML 有 system 键时直接 return，永远拼不进去"""
+        prompt = CoordinatorAgent()._build_system_prompt("AGENTS", {
+            "category": "保健品", "best_score": 82.0, "recalled_count": 5,
+            "common_features": ["水飞蓟"], "common_praises": ["自然"],
+        })
+        assert "历史成功经验" in prompt

@@ -23,8 +23,9 @@ jobs:
       - name: Ruff lint (E/F/I/W)
         run: python -m ruff check src tests
 
-      - name: Full test suite (Mock Mode)
-        run: python -m pytest -q
+      - name: Full test suite (Mock Mode + slow, no real)
+        # addopts 默认排除 real/slow；此处显式含 slow（负载套件），仅排除 real
+        run: python -m pytest -m "not real" -q
 
   frontend:
     name: Frontend (tests + build)
@@ -49,6 +50,21 @@ jobs:
       - name: Production build
         run: npm run build
         working-directory: frontend
+
+      # P6（test-plan L9）：依赖安全门禁——高危及以上漏洞即红
+      # （官方 registry：npmmirror 无 advisory 端点，见 progress.md 前端依赖核查）
+      - name: Dependency audit (high+)
+        run: npm audit --audit-level=high --registry=https://registry.npmjs.org
+        working-directory: frontend
+
+  docker:
+    name: Docker build (nginx multi-stage)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build nginx image
+        run: docker build -f deploy/nginx.Dockerfile -t ecommerce-harness:ci .
 
   e2e:
     name: E2E smoke (Mock, 7 scenarios)

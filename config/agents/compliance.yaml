@@ -3,7 +3,7 @@ description: 检查生成图片是否符合广告法和平台规范（保健品/
 version: "1.0.0"
 requires: [vision]
 prompt: prompts/compliance.yaml
-timeout_ms: 30000
+timeout_ms: 150000
 retry:
   max_retries: 3
   backoff: exponential

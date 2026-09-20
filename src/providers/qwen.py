@@ -1,8 +1,10 @@
 """阿里通义千问 Provider — Vision + Text (DashScope API)"""
 
 import os
-import json
+from src.core.config import resolve_base_url
+from src.harness.pricing import estimate
 from src.providers.base import BaseLLMProvider
+from src.providers.compat import openai_compatible_chat
 
 
 class QwenLLMProvider(BaseLLMProvider):
@@ -11,90 +13,51 @@ class QwenLLMProvider(BaseLLMProvider):
     name = "qwen"
     capabilities = ["vision", "text"]
 
-    def __init__(self):
+    def __init__(self, max_tokens: int = 4096):
         self.api_key = os.getenv("DASHSCOPE_API_KEY", "")
-        self.base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        self.max_tokens = max_tokens
+        # 端点可覆盖：env DASHSCOPE_BASE_URL → config/providers.yaml → 官方端点
+        self.base_url = resolve_base_url(
+            "qwen", "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        )
 
     async def chat(self, messages: list[dict], model: str = "qwen-max", json_mode: bool = False) -> dict:
-        import httpx
-
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
         body = {
             "model": model,
             "messages": messages,
+            "max_tokens": self.max_tokens,
         }
         if json_mode:
             body["response_format"] = {"type": "json_object"}
 
-        async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.post(
-                f"{self.base_url}/chat/completions",
-                headers=headers,
-                json=body,
-            )
-            if resp.status_code != 200:
-                return {"error": f"Qwen API error: {resp.status_code}"}
-
-            data = resp.json()
-            content_str = data["choices"][0]["message"]["content"]
-            tokens = data.get("usage", {}).get("total_tokens", 0)
-
-            if json_mode:
-                try:
-                    content = json.loads(content_str)
-                except json.JSONDecodeError:
-                    content = {"raw": content_str}
-            else:
-                content = {"text": content_str}
-
-            return {
-                "content": content,
-                "tokens_used": tokens,
-                "cost_usd": self._estimate_cost(model, tokens),
-            }
+        return await openai_compatible_chat(
+            base_url=self.base_url,
+            api_key=self.api_key,
+            body=body,
+            label="Qwen",
+            model=model,
+            json_mode=json_mode,
+            cost_fn=lambda m, tokens_in, tokens_out: self._estimate_cost(m, tokens_in + tokens_out),
+        )
 
     async def chat_with_vision(self, messages: list[dict], model: str = "qwen-vl-max") -> dict:
         """Qwen-VL-Max 视觉理解"""
-        import httpx
-
         # Convert messages to DashScope multi-modal format
         formatted = self._convert_for_vision(messages)
-
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
         body = {
             "model": model,
             "messages": formatted,
+            "max_tokens": self.max_tokens,
         }
-
-        async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.post(
-                f"{self.base_url}/chat/completions",
-                headers=headers,
-                json=body,
-            )
-            if resp.status_code != 200:
-                return {"error": f"Qwen VL API error: {resp.status_code}"}
-
-            data = resp.json()
-            content_str = data["choices"][0]["message"]["content"]
-            tokens = data.get("usage", {}).get("total_tokens", 0)
-
-            try:
-                content = json.loads(content_str)
-            except json.JSONDecodeError:
-                content = {"text": content_str}
-
-            return {
-                "content": content,
-                "tokens_used": tokens,
-                "cost_usd": self._estimate_cost(model, tokens),
-            }
+        return await openai_compatible_chat(
+            base_url=self.base_url,
+            api_key=self.api_key,
+            body=body,
+            label="Qwen VL",
+            model=model,
+            parse_json=True,
+            cost_fn=lambda m, tokens_in, tokens_out: self._estimate_cost(m, tokens_in + tokens_out),
+        )
 
     def _convert_for_vision(self, messages: list[dict]) -> list[dict]:
         """将 OpenAI 视觉格式转为 Qwen 多模态格式"""
@@ -110,16 +73,14 @@ class QwenLLMProvider(BaseLLMProvider):
                 formatted.append({"role": role, "content": content})
         return formatted
 
-    def _estimate_cost(self, model: str, tokens: int) -> float:
-        """Qwen 定价（USD/1M tokens），按 ¥1 ≈ $0.14 换算
+    def _estimate_cost(self, model: str, tokens: int) -> float | None:
+        """查价（USD/1M tokens，按 ¥1 ≈ $0.14 换算）；**查不到返回 `None`**
 
-        Qwen-Max: ¥40/1M tokens ≈ $5.60/1M tokens
+        此前写死 `prices.get(model, 5.60)` —— 任何未知/新模型都被按 qwen-max 计价。
+        现在未标定就是未知（界面显示"未标定"），价格可在设置页改。
+        签名保持 `(model, tokens)` 不变（`compat` 的 cost_fn 以 lambda 适配）。
         """
-        prices = {
-            "qwen-max": 5.60,       # $5.60/1M tokens
-            "qwen-plus": 0.28,
-            "qwen-vl-max": 5.60,
-            "qwen-vl-plus": 0.42,
-        }
-        price_per_m = prices.get(model, 5.60)
-        return round((tokens / 1_000_000) * price_per_m, 6)
+        model = model or getattr(self, "_current_model", "") or "qwen-max"
+        result = estimate(getattr(self, "route", "") or "qwen", model, "text",
+                          {"tokens_in": int(tokens or 0), "tokens_out": 0})
+        return result["amount"]
