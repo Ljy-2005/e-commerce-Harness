@@ -76,8 +76,8 @@ class TestCoordinatorAgent:
         """ab_test 模式只有 analyst + category，然后 done"""
         agent = CoordinatorAgent()
         agent.set_mode("ab_test")
-        d1 = agent._mock_decision()
-        d2 = agent._mock_decision()
+        agent._mock_decision()          # analyst
+        agent._mock_decision()          # category
         d3 = agent._mock_decision()
         assert d3["action"] == "done", f"Expected done after 2 steps in ab_test, got {d3}"
 

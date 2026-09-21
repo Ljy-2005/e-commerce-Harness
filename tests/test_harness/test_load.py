@@ -7,7 +7,6 @@
 """
 
 import asyncio
-import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -181,7 +180,6 @@ class TestRateLimitEffectiveness:
         ).status_code == 429
 
         # 回拨失败记录时间戳 → 模拟 60s 窗口过期（确定性，不等真实时间）
-        now = time.monotonic()
         for ip, stamps in list(auth_mod._AUTH_FAILURES.items()):
             auth_mod._AUTH_FAILURES[ip] = [t - 61 for t in stamps]
         resp = client.get("/api/sessions", headers={"X-API-Key": "wrong"})

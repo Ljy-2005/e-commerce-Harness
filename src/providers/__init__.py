@@ -9,7 +9,7 @@
 import os
 from typing import Optional
 
-from src.core.config import is_mock_mode, load_models_config
+from src.core.config import load_models_config
 from src.providers.base import BaseImageProvider, BaseLLMProvider
 from src.providers.mock import MockImageProvider, MockLLMProvider
 from src.providers.routes import (

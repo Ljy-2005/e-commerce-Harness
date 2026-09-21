@@ -332,7 +332,7 @@ def test_anchors_come_from_user_entries(store):
 
 
 def test_interrupted_analysis_is_reaped(store):
-    entry = _create(store)
+    _create(store)                      # 落库一条（返回值本用例用不到）
     items = store._all_entries()
     items[0]["analyzing_at"] = "2020-01-01T00:00:00+00:00"
     store._save_entries(items)

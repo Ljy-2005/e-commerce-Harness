@@ -68,7 +68,7 @@ class TestManualMode:
 
         # 跳过下一个节点（analyze）→ 引擎自动前进一步（prompt）后暂停
         await engine.control(job.job_id, "skip_step", "analyze")
-        done = await _wait_done_paused(store, job.job_id, ["validate", "prompt"])
+        await _wait_done_paused(store, job.job_id, ["validate", "prompt"])
         steps = await store.get_steps(job.job_id)
         analyze = next(s for s in steps if s.node == "analyze")
         assert analyze.status == StepStatus.SKIPPED

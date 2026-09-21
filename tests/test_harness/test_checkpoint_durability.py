@@ -135,7 +135,7 @@ class TestDiskReclamation:
         old_ts = (datetime.now(timezone.utc) - timedelta(days=10)).timestamp()
         os.utime(stale, (old_ts, old_ts))
 
-        stats = await cp_mod.cleanup_checkpoints(ttl_hours=24)
+        await cp_mod.cleanup_checkpoints(ttl_hours=24)
 
         assert not stale.exists()
         assert fresh.exists()

@@ -38,7 +38,7 @@ async def test_count_by_tenant_only_active():
     """completed/failed 不计入活跃配额（否则达到 max_sessions 后永久 429）"""
     mgr = SessionManager(session_ttl_hours=999_999)
     done = _create(mgr, status="completed")
-    running = _create(mgr, status="running")
+    _create(mgr, status="running")
     waiting = _create(mgr, status="waiting_human")
     failed = _create(mgr, status="failed")
 

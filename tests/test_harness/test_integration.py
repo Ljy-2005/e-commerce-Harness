@@ -119,7 +119,6 @@ class TestCostTrackerIntegration:
         for _ in range(5):
             await agent.execute("test", session)
 
-        warnings = session.get("_warnings", [])
         # 可能触发告警（取决于累计成本）
         assert session["cost_so_far"] > 0
 
