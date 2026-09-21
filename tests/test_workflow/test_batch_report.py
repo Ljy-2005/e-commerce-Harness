@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from src.workflow.job_store import JobStore
-from src.workflow.models import WorkflowJob, JobStatus
+from src.workflow.models import JobStatus, WorkflowJob
 
 
 @pytest.fixture

@@ -1,9 +1,10 @@
 """Input/Output Pipeline + 审计日志测试"""
 
 import pytest
-from src.harness.input_pipeline import ImageValidator, InputPipeline, ValidationResult
-from src.harness.output_pipeline import SchemaValidator, OutputPipeline, OutputResult
+
 from src.harness.audit_logger import AuditLogger
+from src.harness.input_pipeline import ImageValidator
+from src.harness.output_pipeline import OutputPipeline, SchemaValidator
 
 
 class _FakeImage:

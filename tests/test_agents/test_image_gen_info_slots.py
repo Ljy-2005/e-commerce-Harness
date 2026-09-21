@@ -13,7 +13,6 @@
 import base64
 import io
 
-import pytest
 from PIL import Image
 
 from src.agents.image_gen import ImageGeneratorAgent

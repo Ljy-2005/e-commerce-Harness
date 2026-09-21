@@ -5,7 +5,8 @@
 """
 
 import pytest
-from src.harness.cost_tracker import CostTracker, BudgetExceeded
+
+from src.harness.cost_tracker import BudgetExceeded, CostTracker
 
 
 class TestCostTracker:

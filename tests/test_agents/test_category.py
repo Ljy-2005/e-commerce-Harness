@@ -1,6 +1,7 @@
 """CategorySpecialistAgent 单元测试"""
 
 import pytest
+
 from src.agents.category import CategorySpecialistAgent
 
 

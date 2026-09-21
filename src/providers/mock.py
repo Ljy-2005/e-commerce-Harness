@@ -13,8 +13,7 @@
 群聊与产物会标注"⚠️ 演示数据，非本次商品"。字段名保持不变，减少测试与前端改动。
 """
 
-from src.providers.base import BaseLLMProvider, BaseImageProvider
-
+from src.providers.base import BaseImageProvider, BaseLLMProvider
 
 # ── 模板数据 ──
 

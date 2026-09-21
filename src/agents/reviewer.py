@@ -262,8 +262,8 @@ class ReviewerAgent(BaseAgent):
     def _anchor_block(self, session, analysis) -> str:
         """用户审美锚点（`config/style_library.yaml → anchors` + 用户词条里的锚点）"""
         try:
-            from src.harness.style_library import render_anchor_block, select_by_slot
             from src.core.platforms import platform_slot_table
+            from src.harness.style_library import render_anchor_block, select_by_slot
 
             task = (session or {}).get("task") or {}
             prompts = (session or {}).get("artifacts", {}).get("prompts") or {}

@@ -1,8 +1,7 @@
 """速率限制器 — Token Bucket 算法，每 Provider/Model 独立"""
 
-import time
 import asyncio
-from collections import defaultdict
+import time
 
 
 class RateLimiter:

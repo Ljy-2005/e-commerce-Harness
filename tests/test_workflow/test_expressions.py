@@ -3,10 +3,10 @@
 import pytest
 
 from src.workflow.expressions import (
+    build_scope,
     eval_expr,
     render_string,
     resolve_path,
-    build_scope,
 )
 
 

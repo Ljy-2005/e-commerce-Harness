@@ -12,7 +12,6 @@ import pytest
 from src.chat.engine import ChatEngine, _has_identity_card
 from src.chat.session import SessionManager
 
-
 IDENTITY = {
     "brand": "DEFOEBUENA®", "product_name": "金裝強力肝迅康", "spec": "60's",
     "certifications": [], "package_form": "", "confidence": 0.93, "evidence": "",

@@ -7,12 +7,12 @@
 
 import pytest
 
+import src.agents.base as agents_base
 from src.agents.base import BaseAgent
 from src.agents.registry import AgentRegistry
 from src.chat.engine import ChatEngine
 from src.chat.session import SessionManager
 from src.harness.rate_limiter import RateLimiter
-import src.agents.base as agents_base
 from src.providers import get_provider_registry
 
 

@@ -2,7 +2,7 @@
 
 import asyncio
 import base64
-import io
+
 from src.agents.base import BaseAgent
 
 

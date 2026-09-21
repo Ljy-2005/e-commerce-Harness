@@ -98,7 +98,7 @@ def style_copy_overlap(prompt: str, entries, slot_id: str = "") -> tuple[str, st
         return "", ""
     windows = {text[index:index + STYLE_COPY_CHARS]
                for index in range(len(text) - STYLE_COPY_CHARS + 1)}
-    from src.harness.style_library import style_plain_text   # 惰性导入：避免模块级互相引用
+    from src.harness.style_library import style_plain_text  # 惰性导入：避免模块级互相引用
     for entry in entries or []:
         if not isinstance(entry, dict):
             continue

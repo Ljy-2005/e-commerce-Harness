@@ -14,10 +14,10 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 import src.main as main_mod
-from src.main import app, _agent_registry
-from src.workflow.job_store import JobStore
-from src.workflow.engine import WorkflowEngine
+from src.main import _agent_registry, app
 from src.workflow.batch import BatchScheduler
+from src.workflow.engine import WorkflowEngine
+from src.workflow.job_store import JobStore
 
 
 def _valid_jpeg_bytes() -> bytes:
@@ -135,7 +135,6 @@ class TestTenantIsolation:
         assert resp.status_code == 404
 
     def test_cross_tenant_batch_control_404(self, client):
-        from src.workflow.models import WorkflowJob
         from datetime import datetime, timezone
         store = main_mod._workflow_store
         now = datetime.now(timezone.utc)
@@ -546,6 +545,7 @@ class TestBatchReportEndpoint:
 
     async def _seed(self, client):
         from datetime import datetime, timedelta, timezone
+
         from src.workflow.models import WorkflowJob
         store = main_mod._workflow_store
         now = datetime.now(timezone.utc)

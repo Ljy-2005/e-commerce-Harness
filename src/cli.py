@@ -2,10 +2,8 @@
 
 import asyncio
 import base64
-import os
 import sys
 from pathlib import Path
-from typing import Optional
 
 import typer
 
@@ -82,7 +80,12 @@ def agents_list():
 @app.command()
 def config_validate():
     """验证所有配置文件"""
-    from src.core.config import load_default_config, load_models_config, list_agent_configs, load_agent_config
+    from src.core.config import (
+        list_agent_configs,
+        load_agent_config,
+        load_default_config,
+        load_models_config,
+    )
 
     errors = []
     typer.echo("[验证] 检查配置文件...")
@@ -124,10 +127,10 @@ def config_validate():
 
 def _sync_run(image_path: str, platform: str = "taobao", product_info: str = "", category: str = "", mode: str = "serial", max_turns: int = 15):
     """同步执行群聊流程（CLI 入口）"""
-    from src.providers import get_provider_registry
     from src.agents.registry import get_agent_registry
-    from src.chat.session import SessionManager
     from src.chat.engine import ChatEngine
+    from src.chat.session import SessionManager
+    from src.providers import get_provider_registry
 
     async def _go():
         # 读取图片

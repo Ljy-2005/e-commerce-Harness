@@ -1,10 +1,9 @@
 """多租户隔离 — TenantContext + 租户级资源隔离"""
 
 import os
-from dataclasses import dataclass, field
 from contextvars import ContextVar
+from dataclasses import dataclass, field
 from typing import Optional
-
 
 # ── 当前请求的租户上下文（ContextVar，协程安全）──
 _current_tenant: ContextVar[Optional["TenantContext"]] = ContextVar("tenant_ctx", default=None)

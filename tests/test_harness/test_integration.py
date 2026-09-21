@@ -1,7 +1,8 @@
 """Harness 集成测试 — 验证熔断+限流+成本在实际 Agent 调用中生效"""
 
 import pytest
-from src.agents.base import BaseAgent, get_circuit_breaker, _get_limiter
+
+from src.agents.base import BaseAgent, get_circuit_breaker
 from src.chat.session import SessionManager
 
 

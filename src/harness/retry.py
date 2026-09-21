@@ -1,8 +1,8 @@
 """智能重试 — 指数退避 + Jitter"""
 
-import random
 import asyncio
-from typing import Any, Callable, Awaitable, Optional
+import random
+from typing import Any, Awaitable, Callable, Optional
 
 
 class RetryConfig:

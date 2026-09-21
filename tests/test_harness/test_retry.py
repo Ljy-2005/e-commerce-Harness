@@ -1,8 +1,8 @@
 """with_retry 单元测试"""
 
-import asyncio
 import pytest
-from src.harness.retry import with_retry, RetryConfig
+
+from src.harness.retry import RetryConfig, with_retry
 
 
 class TestRetryConfig:

@@ -5,6 +5,7 @@
 """
 
 import time
+
 from src.harness.circuit import CircuitBreaker, CircuitState
 
 

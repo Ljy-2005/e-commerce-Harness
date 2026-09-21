@@ -1,9 +1,10 @@
 """多协作模式测试"""
 
 import pytest
+
 from src.agents.registry import AgentRegistry
-from src.chat.session import SessionManager
 from src.chat.engine import ChatEngine
+from src.chat.session import SessionManager
 from src.providers import get_provider_registry
 
 

@@ -16,7 +16,6 @@ import pytest
 from PIL import Image, ImageDraw
 
 import src.core.config  # noqa: F401  触发 secrets.yaml → env 注入（Key 缺失时套件 skip）
-
 from src.providers.deepseek import DeepSeekLLMProvider
 
 pytestmark = [

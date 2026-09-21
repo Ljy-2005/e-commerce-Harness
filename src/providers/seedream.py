@@ -1,11 +1,11 @@
 """Seedream 5.0 (即梦AI) Provider — 字节跳动/火山引擎图像生成"""
 
-import os
-import time
-import hmac
 import hashlib
+import hmac
 import json
+import os
 from datetime import datetime, timezone
+
 from src.harness.pricing import estimate
 from src.providers.base import BaseImageProvider, provider_error
 
@@ -35,7 +35,6 @@ class SeedreamImageProvider(BaseImageProvider):
         self, prompt: str, negative_prompt: str = "", size: str = "1024x1024", model: str = "seedream-5.0",
         *, reference_images: list[str] | None = None, options: dict | None = None,
     ) -> dict:
-        import httpx
 
         # 旧通道不支持参考图与平台参数：不静默忽略，回报给调用方（参考图是商品身份的唯一
         # 事实来源，丢了模型就会编造包装上的品牌文字）

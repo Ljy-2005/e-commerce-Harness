@@ -1,6 +1,7 @@
 """PromptGeneratorAgent 单元测试"""
 
 import pytest
+
 from src.agents.prompt_gen import PromptGeneratorAgent
 
 

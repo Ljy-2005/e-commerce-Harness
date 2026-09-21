@@ -121,7 +121,6 @@ class TestCostTrackerRestore:
     async def test_cost_still_recorded_after_restore(self):
         """恢复后的会话必须继续记账（此前静默失效）"""
         from src.agents.base import BaseAgent
-        from src.harness.cost_tracker import CostTracker
 
         class _Provider:
             name = "deepseek"

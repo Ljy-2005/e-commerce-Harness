@@ -10,7 +10,6 @@
 文案只取已确认事实，缺依据就 `blocked` 并说明要补什么素材。
 """
 
-import json
 
 import pytest
 
@@ -192,8 +191,9 @@ class TestSlotCopy:
 @pytest.mark.skipif(not available_fonts(), reason="系统无中文字体")
 class TestLocalCompose:
     def _base(self, size=(600, 600)):
-        from PIL import Image
         import io
+
+        from PIL import Image
         image = Image.new("RGB", size, (250, 250, 252))
         buffer = io.BytesIO()
         image.save(buffer, format="PNG")
@@ -206,8 +206,9 @@ class TestLocalCompose:
         assert meta["ok"] is True
         assert meta["items"] >= 2
         assert meta["font"]
-        from PIL import Image
         import io
+
+        from PIL import Image
         image = Image.open(io.BytesIO(data))
         assert image.size == (800, 800)
 
@@ -244,8 +245,8 @@ class TestLocalCompose:
 
     def test_all_declared_layouts_are_implemented(self):
         """槽位目录里声明的版式必须都实现（防止写了个名字却画不出来）"""
-        from src.harness.image_compose import layout_options
         from src.core.platforms import load_platforms
+        from src.harness.image_compose import layout_options
         declared = set()
         catalog = load_platforms() and None  # noqa: F841 - 触发一次读取，确认配置可解析
         from src.core.platforms import _slot_catalog
@@ -292,8 +293,9 @@ class TestTypographySettings:
     """排版样式可由用户调（设置页 → 生图质量策略 → typography）"""
 
     def _base(self, size=(600, 600)):
-        from PIL import Image
         import io
+
+        from PIL import Image
         image = Image.new("RGB", size, (252, 252, 252))
         buffer = io.BytesIO()
         image.save(buffer, format="PNG")
@@ -319,8 +321,9 @@ class TestTypographySettings:
         assert data
 
     def test_brand_color_is_applied_to_header(self):
-        from PIL import Image
         import io
+
+        from PIL import Image
         data, meta = render_info_image(self._base(), self._copy(), layout="top_title_bullets",
                                        size=(600, 600),
                                        typography={"brand_color": "#B02020"})

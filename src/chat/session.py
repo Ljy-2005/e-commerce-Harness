@@ -2,12 +2,11 @@
 
 import time
 import uuid
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from typing import Optional
 
-from src.core.state import SessionState, RunStatus
-from src.core.models import Message
 from src.core.logging_config import get_logger
+from src.core.state import RunStatus, SessionState
 
 _session_logger = get_logger(__name__)
 

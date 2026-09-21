@@ -1,14 +1,13 @@
 """M4 测试 — 审批 SLA 超时自动决策 / webhook 工具 / 模板导入导出"""
 
 import asyncio
-import io
 
 import pytest
 
 from src.workflow import templates
 from src.workflow.engine import _Runtime
 from src.workflow.models import StepRecord, StepStatus
-from src.workflow.tools import run_tool, list_tools
+from src.workflow.tools import list_tools, run_tool
 
 
 class TestSlaTimeout:
@@ -194,7 +193,6 @@ class TestCancelWhileWaitingHuman:
     @pytest.mark.asyncio
     async def test_cancel_wakes_waiting_human(self, engine, store, job_inputs):
         from src.workflow import templates as tpl
-        from src.workflow.models import JobStatus
         job = tpl.instantiate("light_approval", job_inputs, mode="auto")
         await store.create_job(job)
         task = await engine.start(job)
@@ -287,7 +285,6 @@ class TestApprovalMatrixTemplate:
     @pytest.mark.asyncio
     async def test_auto_reject_via_matrix(self, engine, store, job_inputs):
         """矩阵 default=auto_reject → 超时自动拒绝 → job failed"""
-        from src.workflow.models import JobStatus
         job = templates.instantiate("scene_suite", job_inputs, mode="auto")
         await store.create_job(job)
         engine._runtimes[job.job_id] = _Runtime()

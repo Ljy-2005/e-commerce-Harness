@@ -1,7 +1,6 @@
 """输入验证管道 — 图片格式/大小/分辨率/安全检查"""
 
 from dataclasses import dataclass, field
-from typing import Optional
 
 
 @dataclass

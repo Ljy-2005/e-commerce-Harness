@@ -1,8 +1,15 @@
 """AgentRegistry — 扫描 config/agents/，自动注册 Agent"""
 
-from src.core.config import load_agent_config, list_agent_configs
+from typing import TYPE_CHECKING
+
+from src.core.config import list_agent_configs, load_agent_config
 from src.core.models import AgentMeta
 from src.harness.retry import RetryConfig
+
+# 仅用于类型注解（注解写成字符串，真正的 Agent 实现在 _create_agent 里按需导入，
+# 避免注册中心 ↔ 各 Agent 的循环导入）
+if TYPE_CHECKING:
+    from src.agents.base import BaseAgent
 
 # YAML `retry:` 里允许覆盖的字段（`backoff: exponential` 这类描述性字段忽略）
 _RETRY_KEYS = ("max_retries", "base_delay_ms", "max_delay_ms", "backoff_multiplier", "jitter")
@@ -109,15 +116,15 @@ class AgentRegistry:
 
     def _create_agent(self, meta: AgentMeta, provider, model: str) -> "BaseAgent | None":
         """根据 AgentMeta 创建对应的 Agent 实例"""
-        from src.agents.coordinator import CoordinatorAgent
         from src.agents.analyst import ProductAnalystAgent
         from src.agents.category import CategorySpecialistAgent
+        from src.agents.compliance import ComplianceAgent
+        from src.agents.coordinator import CoordinatorAgent
+        from src.agents.image_gen import ImageGeneratorAgent
+        from src.agents.post_process import PostProcessAgent
         from src.agents.prompt_gen import PromptGeneratorAgent
         from src.agents.prompt_reviewer import PromptReviewerAgent
-        from src.agents.image_gen import ImageGeneratorAgent
         from src.agents.reviewer import ReviewerAgent
-        from src.agents.compliance import ComplianceAgent
-        from src.agents.post_process import PostProcessAgent
 
         _MAP = {
             "中心决策者": CoordinatorAgent,

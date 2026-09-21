@@ -12,7 +12,6 @@
 import pytest
 
 from src.agents.style_archivist import StyleArchivistAgent
-from src.providers.mock import MockLLMProvider
 
 PAYLOAD = {
     "name_suggestions": ["冷白留白感", "柔光渐层"],

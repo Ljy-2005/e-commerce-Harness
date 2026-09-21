@@ -16,7 +16,6 @@ import pytest
 
 from src.harness import style_library as sl
 from src.harness.style_store import (
-    MAX_ENTRIES_PER_TENANT,
     MAX_PHOTOS,
     StyleStore,
     entry_to_summary,

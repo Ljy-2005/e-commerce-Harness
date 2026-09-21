@@ -14,7 +14,6 @@ from src.harness.image_preprocessor import (
     PreprocessResult,
 )
 
-
 # ── 测试辅助 ──
 
 

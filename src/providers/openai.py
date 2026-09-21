@@ -1,9 +1,10 @@
 """OpenAI Provider — GPT-4o Vision + Text + DALL-E 3"""
 
 import os
+
 from src.core.config import resolve_base_url
 from src.harness.pricing import estimate
-from src.providers.base import BaseLLMProvider, BaseImageProvider, provider_error
+from src.providers.base import BaseImageProvider, BaseLLMProvider, provider_error
 from src.providers.compat import openai_compatible_chat
 
 
@@ -129,8 +130,9 @@ class OpenAIImageProvider(BaseImageProvider):
         self, prompt: str, negative_prompt: str = "", size: str = "1024x1024", model: str = "dall-e-3",
         *, reference_images: list[str] | None = None, options: dict | None = None,
     ) -> dict:
-        import httpx
         import warnings
+
+        import httpx
 
         ignored: list[str] = []
         if negative_prompt and not self.supports_negative_prompt:

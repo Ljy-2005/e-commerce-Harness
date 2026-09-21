@@ -2,8 +2,8 @@
 
 import pytest
 
-from src.agents.style_analyst import StyleAnalystAgent
 from src.agents.registry import AgentRegistry
+from src.agents.style_analyst import StyleAnalystAgent
 from src.providers import get_provider_registry
 from tests.test_workflow.conftest import _run_async
 

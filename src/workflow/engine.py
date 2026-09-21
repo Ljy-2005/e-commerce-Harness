@@ -10,9 +10,9 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from src.core.logging_config import get_logger
-from src.workflow.models import WorkflowJob, StepRecord, JobStatus, StepStatus
-from src.workflow import templates as tpl_mod
 from src.workflow import expressions as expr
+from src.workflow import templates as tpl_mod
+from src.workflow.models import JobStatus, StepRecord, StepStatus, WorkflowJob
 from src.workflow.tools import run_tool
 
 _engine_logger = get_logger(__name__)
@@ -384,8 +384,8 @@ class WorkflowEngine:
         return result
 
     async def _run_group_chat(self, job, cfg) -> dict:
-        from src.chat.session import SessionManager
         from src.chat.engine import ChatEngine
+        from src.chat.session import SessionManager
 
         mode = cfg.get("collaboration_mode", "serial")
         if isinstance(mode, str) and mode.startswith("$"):

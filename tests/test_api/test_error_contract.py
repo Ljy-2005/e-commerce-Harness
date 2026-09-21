@@ -11,7 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from src.main import app, _session_manager
+from src.main import _session_manager, app
 
 client = TestClient(app)
 

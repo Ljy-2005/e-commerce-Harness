@@ -4,11 +4,18 @@ import asyncio
 import time
 from abc import ABC, abstractmethod
 from contextvars import ContextVar
+from typing import TYPE_CHECKING
 
-from src.harness.retry import with_retry, RetryConfig
-from src.harness.timeout import execute_with_timeout
-from src.core.models import Message
 from src.core.logging_config import get_logger
+from src.harness.retry import RetryConfig, with_retry
+from src.harness.timeout import execute_with_timeout
+
+# 仅用于类型注解（下面的注解写成字符串，运行时由函数内延迟导入真正加载，
+# 避免 agents ↔ harness 的循环导入）。缺这个块时 ruff F821 会把它们
+# 报成"未定义名称"。
+if TYPE_CHECKING:
+    from src.harness.circuit import CircuitBreaker
+    from src.harness.rate_limiter import RateLimiter
 
 _base_logger = get_logger(__name__)
 

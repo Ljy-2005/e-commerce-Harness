@@ -4,23 +4,27 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from src.core.state import SessionState, RunStatus
-from src.core.models import Message, CoordinatorDecision
+from src.agents.registry import AgentRegistry
+from src.chat.broadcaster import Broadcaster
+from src.chat.session import SessionManager
 from src.core.config import chat_settings, image_options
-from src.harness.product_identity import identity_card_block, identity_summary, is_confirmed, normalize_identity
+from src.core.logging_config import get_logger
+from src.core.state import RunStatus, SessionState
+from src.harness.audit_logger import AuditLogger
+from src.harness.context_manager import ContextManager, WindowAction
+from src.harness.output_pipeline import OutputPipeline
+from src.harness.product_identity import (
+    identity_card_block,
+    identity_summary,
+    is_confirmed,
+    normalize_identity,
+)
 from src.harness.set_plan import (
     normalize_set_plan,
     platform_slot_plan,
     set_plan_coverage,
     set_plan_summary,
 )
-from src.agents.registry import AgentRegistry
-from src.chat.session import SessionManager
-from src.chat.broadcaster import Broadcaster
-from src.harness.context_manager import ContextManager, WindowAction
-from src.harness.audit_logger import AuditLogger
-from src.harness.output_pipeline import OutputPipeline
-from src.core.logging_config import get_logger
 
 _engine_logger = get_logger(__name__)
 
@@ -685,7 +689,9 @@ class ChatEngine:
         if mode == "ab_test":
             try:
                 from src.harness.ab_testing import (
-                    ABTestConfig, ABVariant, ABTestRunner,
+                    ABTestConfig,
+                    ABTestRunner,
+                    ABVariant,
                     make_model_variants,
                 )
                 ab_config = session.get("task", {}).get("ab_config")

@@ -4,12 +4,11 @@ import asyncio
 
 import pytest
 
-from src.agents.registry import AgentRegistry
 from src.agents.prompt_gen import PromptGeneratorAgent
-from src.core.models import AgentMeta
+from src.agents.registry import AgentRegistry
 from src.providers.mock import MockLLMProvider
 from src.workflow import templates
-from src.workflow.models import JobStatus, StepStatus
+from src.workflow.models import JobStatus
 from tests.test_workflow.conftest import instantiate_and_run
 
 

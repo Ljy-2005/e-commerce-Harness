@@ -11,8 +11,8 @@
 4. 围栏 JSON 能被解析（A33）。
 """
 
-import pytest
 import httpx as _httpx_module
+import pytest
 
 from src.providers.deepseek import DeepSeekLLMProvider
 from src.providers.openai import OpenAILLMProvider

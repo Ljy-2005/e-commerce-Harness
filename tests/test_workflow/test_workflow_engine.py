@@ -155,7 +155,6 @@ class TestResume:
     @pytest.mark.asyncio
     async def test_crash_resume_from_middle(self, engine, store, job_inputs):
         """模拟崩溃：前半步骤成功落库后重建引擎，run() 应从断点续跑"""
-        from src.workflow.job_store import JobStore
         from src.workflow.engine import WorkflowEngine
         from src.workflow.models import StepRecord
 

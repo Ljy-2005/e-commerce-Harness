@@ -1,9 +1,9 @@
 """Agent 单元测试共享 fixtures"""
 
 import pytest
-from src.providers.mock import MockLLMProvider, MockImageProvider
-from src.agents.registry import AgentRegistry
+
 from src.chat.session import SessionManager
+from src.providers.mock import MockImageProvider, MockLLMProvider
 
 
 @pytest.fixture

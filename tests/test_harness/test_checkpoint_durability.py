@@ -144,9 +144,9 @@ class TestDiskReclamation:
 class TestStartupReclamation:
     def test_lifespan_reclaims_expired_terminal_checkpoints(self, tmp_path, monkeypatch):
         """B1-8 接线：启动（lifespan）即回收超期终态 checkpoint"""
-        import src.core.config as config_mod
         from fastapi.testclient import TestClient
 
+        import src.core.config as config_mod
         from src.main import app
 
         monkeypatch.setattr(config_mod, "data_root", lambda: tmp_path)
@@ -171,9 +171,10 @@ class TestStartupRestoreVisibility:
     """
 
     def test_terminal_checkpoints_are_restored_too(self, tmp_path, monkeypatch):
-        import src.core.config as config_mod
         from fastapi.testclient import TestClient
-        from src.main import app, _session_manager
+
+        import src.core.config as config_mod
+        from src.main import _session_manager, app
 
         # 恢复路径枚举的是 data_root()/"checkpoints"，而 load_checkpoint 用 _checkpoint_dir()
         # ——两者必须指向同一目录，否则测试写到了别处（踩过一次）

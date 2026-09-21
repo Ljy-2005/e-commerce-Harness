@@ -1,10 +1,8 @@
 """上下文管理器 — Token 估算 + 60% 阈值压缩 + 窗口过渡"""
 
 import re
-from dataclasses import dataclass, field
-from datetime import datetime
+from dataclasses import dataclass
 from enum import Enum
-
 
 # ── 模型上下文窗口大小（tokens）──
 MODEL_LIMITS = {
@@ -141,7 +139,8 @@ class ContextManager:
         # 此前只给 role+content（且 content 是字符串），前端拿不到 id 当 key、
         # 也读不到 content 里的字段（实测：会话变长触发压缩后，测试立刻抓到结构不一致）
         import uuid as _uuid
-        from datetime import datetime as _dt, timezone as _tz
+        from datetime import datetime as _dt
+        from datetime import timezone as _tz
         compacted.append({
             "id": _uuid.uuid4().hex[:12],
             "turn": int(middle[-1].get("turn") or 0) if middle else 0,
@@ -186,7 +185,7 @@ class ContextManager:
         cleaned = {}
         for k, v in item.items():
             if k in ("base64_data", "image_url"):
-                cleaned[k] = f"[已裁剪]"
+                cleaned[k] = "[已裁剪]"
             else:
                 cleaned[k] = v
         return cleaned
@@ -195,8 +194,6 @@ class ContextManager:
         """从消息列表中提取关键信息生成摘要"""
         points = []
         for m in messages:
-            role = m.get("role", "")
-            sender = m.get("sender", "")
             content = m.get("content", {})
 
             if isinstance(content, dict):

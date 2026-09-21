@@ -13,7 +13,7 @@ import asyncio
 import pytest
 from fastapi.testclient import TestClient
 
-from src.main import app, _agent_registry, _provider_registry  # noqa: F401
+from src.main import _agent_registry, _provider_registry, app  # noqa: F401
 
 try:
     asyncio.get_event_loop().run_until_complete(

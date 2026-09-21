@@ -1,7 +1,6 @@
 """上下文管理器测试 — Token 估算 + 阈值检测 + 压缩"""
 
-import pytest
-from src.harness.context_manager import ContextManager, WindowAction, MODEL_LIMITS
+from src.harness.context_manager import MODEL_LIMITS, ContextManager, WindowAction
 
 
 class TestTokenEstimation:

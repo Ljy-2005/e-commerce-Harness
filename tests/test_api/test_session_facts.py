@@ -81,6 +81,7 @@ class TestFactsEndpoint:
         （实测踩坑：`SessionManager.update` 是协程，漏 await 时只在内存生效）
         """
         import json as _json
+
         from src.storage import checkpoint as ckpt
         sid = _session()
         client.post(f"/api/sessions/{sid}/facts", json={"usage": ["每日 2 粒，飯後服用"]})

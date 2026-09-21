@@ -1,41 +1,67 @@
 """E-Commerce Harness — FastAPI 入口（PRD D4：API 层）"""
 
-import os
 import asyncio
 import base64
 import hmac
 import json
+import os
 import re
 import time
 import uuid
-import yaml
-from datetime import datetime, timezone
 from contextlib import asynccontextmanager
-from pathlib import Path
-from fastapi import (FastAPI, HTTPException, UploadFile, File, Form, WebSocket,
-                     WebSocketDisconnect, Header, Request, Response)
+from datetime import datetime, timezone
+
+import yaml
+from fastapi import (
+    FastAPI,
+    File,
+    Form,
+    Header,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
 
-from src.core.state import SessionState
-from src.core.config import is_mock_mode, load_models_config, list_agent_configs, load_agent_config, _project_root, get_cors_origins, chat_settings, save_chat_settings, image_settings, save_image_settings
-from src.core.tenant import TenantContext, get_tenant_registry, set_current_tenant
-from src.api.auth import AuthMiddleware, authenticate_api_key, auth_enabled, env_tenant_keys, get_tenant_keys, reload_tenant_keys
+from src.agents.registry import get_agent_registry
+from src.api.auth import (
+    AuthMiddleware,
+    auth_enabled,
+    authenticate_api_key,
+    env_tenant_keys,
+    get_tenant_keys,
+    reload_tenant_keys,
+)
+from src.chat.broadcaster import Broadcaster
+from src.chat.engine import ChatEngine
+from src.chat.session import SessionManager
+from src.core.config import (
+    _project_root,
+    chat_settings,
+    get_cors_origins,
+    image_settings,
+    is_mock_mode,
+    list_agent_configs,
+    load_agent_config,
+    load_models_config,
+    save_chat_settings,
+    save_image_settings,
+)
 from src.core.logging_config import get_logger
+from src.core.tenant import TenantContext, get_tenant_registry, set_current_tenant
 from src.harness.image_preprocessor import DEFAULT_MAX_BYTES as _PREPROCESS_MAX_BYTES
 from src.harness.style_store import MAX_ENTRIES_PER_TENANT as _STYLE_MAX_ENTRIES
 from src.harness.style_store import MAX_PHOTOS as _STYLE_MAX_PHOTOS
 from src.harness.style_store import VISION_BATCH_SIZE as _STYLE_VISION_BATCH
 from src.providers import get_provider_registry
-from src.agents.registry import get_agent_registry, AgentRegistry
-from src.chat.session import SessionManager
-from src.chat.engine import ChatEngine
-from src.chat.broadcaster import Broadcaster
-from src.workflow.job_store import JobStore
-from src.workflow.engine import WorkflowEngine
-from src.workflow.batch import BatchScheduler
 from src.workflow import templates as wf_templates
-from src.workflow.models import JobStatus, StepStatus
+from src.workflow.batch import BatchScheduler
+from src.workflow.engine import WorkflowEngine
+from src.workflow.job_store import JobStore
 
 logger = get_logger(__name__)
 
@@ -345,8 +371,8 @@ async def create_session(
         if tenant_cost >= tenant.quota.budget_usd:
             raise HTTPException(429, f"租户 '{tenant.tenant_id}' 月度预算已用完 (${tenant.quota.budget_usd:.2f})")
 
-    from src.harness.input_pipeline import ImageValidator
     from src.harness.image_preprocessor import ImagePreprocessor
+    from src.harness.input_pipeline import ImageValidator
     validator = ImageValidator()
     preprocessor = ImagePreprocessor(max_pixels=PREPROCESS_MAX_PIXELS, quality=PREPROCESS_JPEG_QUALITY)
 
@@ -1176,7 +1202,10 @@ async def style_library_preview(platform: str = "taobao", category: str = "",
     tenant = _resolve_tenant(x_tenant_id)
     from src.core.platforms import platform_slot_table, slot_kind
     from src.harness.style_library import (
-        background_policy, render_anchor_block, render_slot_block, select_by_slot,
+        background_policy,
+        render_anchor_block,
+        render_slot_block,
+        select_by_slot,
         usage_snapshot,
     )
     from src.harness.style_store import StyleStore
@@ -1387,7 +1416,7 @@ async def run_ab_test(session_id: str, x_tenant_id: str = Header("default", alia
     tenant = _resolve_tenant(x_tenant_id)
     session["tenant_id"] = tenant.tenant_id
 
-    from src.harness.ab_testing import ABTestConfig, ABVariant, ABTestRunner, make_model_variants
+    from src.harness.ab_testing import ABTestConfig, ABTestRunner, ABVariant, make_model_variants
 
     # 解析 POST body（优先于 session 中预存的配置）
     ab_config = {}
@@ -2318,7 +2347,8 @@ async def upsert_custom_provider(request: Request):
     if not isinstance(body, dict):
         raise HTTPException(400, "请求体必须是 JSON 对象")
 
-    from src.core.config import load_custom_providers, upsert_custom_provider as save_provider
+    from src.core.config import load_custom_providers
+    from src.core.config import upsert_custom_provider as save_provider
     from src.providers.routes import validate_spec
 
     route = str(body.get("route") or "").strip().lower()

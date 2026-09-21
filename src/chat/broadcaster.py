@@ -1,7 +1,5 @@
 """WebSocket 消息广播器"""
 
-import asyncio
-from typing import Optional
 
 from fastapi import WebSocket
 

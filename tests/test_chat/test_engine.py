@@ -2,10 +2,10 @@
 
 import pytest
 
-from src.core.state import RunStatus
 from src.agents.registry import AgentRegistry
-from src.chat.session import SessionManager
 from src.chat.engine import ChatEngine
+from src.chat.session import SessionManager
+from src.core.state import RunStatus
 from src.providers import get_provider_registry
 
 

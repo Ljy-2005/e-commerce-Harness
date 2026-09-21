@@ -1,6 +1,7 @@
 """CoordinatorAgent 单元测试"""
 
 import pytest
+
 from src.agents.coordinator import CoordinatorAgent
 
 

@@ -10,8 +10,8 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 import src.api.auth as auth_mod
-import src.main as main_mod
 import src.core.config as config_mod
+import src.main as main_mod
 from src.core.tenant import TenantContext, get_tenant_registry
 from src.main import app
 

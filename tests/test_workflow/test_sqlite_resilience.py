@@ -12,7 +12,7 @@ import sqlite3
 import pytest
 
 from src.workflow.job_store import JobStore, _connect
-from src.workflow.models import WorkflowJob, JobStatus
+from src.workflow.models import JobStatus, WorkflowJob
 
 
 def _job(job_id: str = "j1") -> WorkflowJob:

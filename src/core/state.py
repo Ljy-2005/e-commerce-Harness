@@ -1,8 +1,8 @@
 """SessionState + RunStatus — 群聊全局状态"""
 
-from typing import TypedDict, Optional
-from enum import Enum
 from datetime import datetime
+from enum import Enum
+from typing import TypedDict
 
 
 class RunStatus(str, Enum):

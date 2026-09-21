@@ -5,7 +5,6 @@
 落盘失败只告警，绝不影响生成任务。
 """
 
-import base64
 
 import pytest
 

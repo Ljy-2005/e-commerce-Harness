@@ -8,12 +8,12 @@
 
 import pytest
 
+import src.chat.engine as engine_mod
 from src.agents.base import BaseAgent
 from src.agents.registry import AgentRegistry
 from src.agents.reviewer import ReviewerAgent
 from src.chat.engine import ChatEngine
 from src.chat.session import SessionManager
-import src.chat.engine as engine_mod
 from src.providers import get_provider_registry
 
 # 1×1 PNG

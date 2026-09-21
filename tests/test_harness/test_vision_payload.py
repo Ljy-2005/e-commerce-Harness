@@ -5,12 +5,13 @@ Seedream / DALL·E / FLUX）全部只返回 `image_url` → 审查员永远 `NO_
 """
 
 import base64
-from pathlib import Path
 
 import pytest
 
 from src.harness.vision_payload import (
-    MAX_BYTES, image_parts, sniff_mime,
+    MAX_BYTES,
+    image_parts,
+    sniff_mime,
 )
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64

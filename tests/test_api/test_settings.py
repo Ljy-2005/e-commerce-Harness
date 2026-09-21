@@ -2,10 +2,11 @@
 
 import asyncio
 import os
+
 import pytest
 from fastapi.testclient import TestClient
 
-from src.main import app, _agent_registry, _provider_registry, _session_manager
+from src.main import _agent_registry, _provider_registry, _session_manager, app
 
 try:
     asyncio.get_event_loop().run_until_complete(
@@ -194,7 +195,7 @@ class TestProviderConfig:
         monkeypatch.setenv("OPENAI_API_KEY", "sk-x")
         client.post("/api/settings/providers/openai",
                     json={"base_url": "https://proxy.example.com/v1"})
-        from src.providers.openai import OpenAILLMProvider, OpenAIImageProvider
+        from src.providers.openai import OpenAIImageProvider, OpenAILLMProvider
         assert OpenAILLMProvider().base_url == "https://proxy.example.com/v1"
         assert OpenAIImageProvider().base_url == "https://proxy.example.com/v1"
         # env 优先级最高
@@ -263,6 +264,7 @@ class TestProviderKeyMeta:
     def test_source_and_availability_flow(self):
         """未配置 → source '' / available False；保存后 → source 'file' / available True"""
         import os
+
         from src.core.config import load_runtime_secrets, save_runtime_secrets
 
         orig_secrets = load_runtime_secrets()
@@ -290,8 +292,8 @@ class TestProviderKeyMeta:
                 os.environ.pop("DEEPSEEK_API_KEY", None)
             else:
                 os.environ["DEEPSEEK_API_KEY"] = orig_env
-            from src.providers import reset_provider_registry
             import src.main as main_mod
+            from src.providers import reset_provider_registry
             main_mod._provider_registry = reset_provider_registry()
             _run_async(_agent_registry.load_from_config(main_mod._provider_registry))
 
@@ -341,8 +343,8 @@ class TestProviderKeyMeta:
                 save_runtime_secrets({"OPENAI_API_KEY": orig_secrets["OPENAI_API_KEY"]})
             else:
                 save_runtime_secrets({"OPENAI_API_KEY": ""})
-            from src.providers import reset_provider_registry
             import src.main as main_mod
+            from src.providers import reset_provider_registry
             main_mod._provider_registry = reset_provider_registry()
             _run_async(_agent_registry.load_from_config(main_mod._provider_registry))
 
@@ -435,8 +437,8 @@ class TestModelMappingUpdate:
             from src.core.config import _project_root
             path = _project_root() / "config" / "models.yaml"
             path.write_text(original, encoding="utf-8")
-            from src.providers import reset_provider_registry
             import src.main as main_mod
+            from src.providers import reset_provider_registry
             main_mod._provider_registry = reset_provider_registry()
             _run_async(_agent_registry.load_from_config(main_mod._provider_registry))
 
@@ -517,9 +519,6 @@ class TestChatSettings:
 
     def test_update_policy_persists_and_takes_effect(self, monkeypatch):
         import src.api.main as main_mod
-        import src.core.config as cfg_mod
-        from src.chat.engine import ChatEngine
-        from src.chat.session import SessionManager
 
         saved = {}
         monkeypatch.setattr(main_mod, "save_chat_settings",
@@ -548,7 +547,10 @@ class TestChatSettings:
         assert resp.status_code == 400
 
     def test_normalize_rejects_bad_values(self):
-        from src.core.config import DEFAULT_MAX_CONSECUTIVE_FAILURES, normalize_max_consecutive_failures
+        from src.core.config import (
+            DEFAULT_MAX_CONSECUTIVE_FAILURES,
+            normalize_max_consecutive_failures,
+        )
 
         assert normalize_max_consecutive_failures(3) == 3
         assert normalize_max_consecutive_failures("4") == 4

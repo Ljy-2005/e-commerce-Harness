@@ -8,7 +8,6 @@
 """
 
 from dataclasses import dataclass, field
-from typing import Optional
 
 
 def is_number(value) -> bool:
@@ -53,10 +52,10 @@ class SchemaValidator:
             result.passed = False
             return result
 
-        for field in required:
-            if field not in output or output[field] is None:
-                result.missing_fields.append(field)
-                result.errors.append(f"{agent_name} 缺少必要字段: {field}")
+        for fld in required:
+            if fld not in output or output[fld] is None:
+                result.missing_fields.append(fld)
+                result.errors.append(f"{agent_name} 缺少必要字段: {fld}")
 
         result.passed = len(result.errors) == 0
         return result
@@ -90,9 +89,9 @@ class FieldCompletenessChecker:
         }
 
         checks_for = checks.get(agent_name, {})
-        for field, validator in checks_for.items():
+        for fld, validator in checks_for.items():
             value = output
-            for part in field.split("."):
+            for part in fld.split("."):
                 if isinstance(value, dict):
                     value = value.get(part)
                 else:
@@ -100,7 +99,7 @@ class FieldCompletenessChecker:
                     break
 
             if not validator(value):
-                result.errors.append(f"{agent_name}.{field} 验证失败: {value}")
+                result.errors.append(f"{agent_name}.{fld} 验证失败: {value}")
                 result.passed = False
 
         return result

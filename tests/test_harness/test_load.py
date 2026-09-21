@@ -22,8 +22,8 @@ client = TestClient(app)
 @pytest.fixture(autouse=True)
 def _fast_limiter(monkeypatch):
     """注入高额限流器（沿用 test_workflow/conftest 的隔离模式）"""
-    from src.harness.rate_limiter import RateLimiter
     import src.agents.base as agents_base
+    from src.harness.rate_limiter import RateLimiter
     monkeypatch.setattr(agents_base, "_rate_limiter", RateLimiter(default_rpm=100_000))
 
 
@@ -49,9 +49,9 @@ def _reset_auth_failures():
 
 async def _make_engine():
     from src.agents.registry import AgentRegistry
-    from src.providers import get_provider_registry
-    from src.chat.session import SessionManager
     from src.chat.engine import ChatEngine
+    from src.chat.session import SessionManager
+    from src.providers import get_provider_registry
 
     registry = AgentRegistry()
     await registry.load_from_config(get_provider_registry())

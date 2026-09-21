@@ -1,10 +1,16 @@
 """数据模型序列化/反序列化测试"""
 
-import pytest
 from src.core.models import (
-    ProductAnalysis, ImagePrompts, GeneratedImage,
-    ReviewReport, ComplianceReport, CoordinatorDecision,
-    AgentMeta, Message, MarketingAngles, ScenePrompt,
+    AgentMeta,
+    ComplianceReport,
+    CoordinatorDecision,
+    GeneratedImage,
+    ImagePrompts,
+    MarketingAngles,
+    Message,
+    ProductAnalysis,
+    ReviewReport,
+    ScenePrompt,
 )
 
 

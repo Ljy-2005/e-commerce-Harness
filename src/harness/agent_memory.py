@@ -2,11 +2,10 @@
 
 import asyncio
 import json
-import hashlib
 import threading
+from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
-from collections import defaultdict
 
 # 模块级写锁（第三轮审计 B1-6）：追加是"打开-写-关闭"，无锁时并发 remember()
 # 互相覆盖缓冲区，实测 400 并发只落盘 376 行（丢 24）。与 audit_logger 的

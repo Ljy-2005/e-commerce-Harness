@@ -1,7 +1,8 @@
 """Mock Provider 测试"""
 
 import pytest
-from src.providers.mock import MockLLMProvider, MockImageProvider
+
+from src.providers.mock import MockImageProvider, MockLLMProvider
 
 
 class TestMockLLMProvider:

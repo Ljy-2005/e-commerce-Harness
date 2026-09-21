@@ -17,7 +17,6 @@ from src.harness.product_identity import (
     normalize_identity,
 )
 
-
 VISION_PAYLOAD = {
     "product_identity": {
         "brand": "DEFOEBUENA®",

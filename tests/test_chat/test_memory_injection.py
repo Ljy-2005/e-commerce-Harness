@@ -9,10 +9,8 @@
 并且可以由 config/default.yaml 的 memory 段整体关闭。
 """
 
-import pytest
 
 from src.chat.engine import _inject_memory_reference
-
 
 MEMORY = {
     "category": "保健品",

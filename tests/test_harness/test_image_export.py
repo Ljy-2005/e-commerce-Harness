@@ -8,7 +8,6 @@
 import base64
 import io
 import zipfile
-from pathlib import Path
 
 import pytest
 

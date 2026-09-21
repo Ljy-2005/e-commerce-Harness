@@ -35,8 +35,8 @@ def _fast_rate_limiter(monkeypatch):
     """注入高额限流器：全局 60rpm 会把每次完整群聊跑拖慢到 ~30s
     （限流器本身在 tests/test_harness/test_rate_limiter.py 有专门测试，
     沿用 tests/test_workflow/conftest.py 的既有隔离模式）"""
-    from src.harness.rate_limiter import RateLimiter
     import src.agents.base as agents_base
+    from src.harness.rate_limiter import RateLimiter
     monkeypatch.setattr(agents_base, "_rate_limiter", RateLimiter(default_rpm=100_000))
 
 

@@ -3,9 +3,9 @@
 模板 = config/workflows/*.yaml（见 docs/workflow-design.md §3.1）
 """
 
-import yaml
 from pathlib import Path
-from typing import Any
+
+import yaml
 
 from src.workflow.models import WorkflowJob
 

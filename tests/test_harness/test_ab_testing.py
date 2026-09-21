@@ -2,11 +2,10 @@
 
 import pytest
 
-from src.core.models import AgentMeta
-from src.agents.registry import AgentRegistry
 from src.agents.prompt_gen import PromptGeneratorAgent
+from src.agents.registry import AgentRegistry
 from src.agents.reviewer import ReviewerAgent
-from src.providers.mock import MockLLMProvider
+from src.core.models import AgentMeta
 from src.harness.ab_testing import (
     ABTestConfig,
     ABTestResult,
@@ -17,7 +16,7 @@ from src.harness.ab_testing import (
     make_prompt_variants,
     make_temperature_variants,
 )
-
+from src.providers.mock import MockLLMProvider
 
 # ── Fixtures ──
 

@@ -9,12 +9,14 @@
 import os
 from typing import Optional
 
-from src.providers.base import BaseLLMProvider, BaseImageProvider
-from src.providers.mock import MockLLMProvider, MockImageProvider
+from src.core.config import is_mock_mode, load_models_config
+from src.providers.base import BaseImageProvider, BaseLLMProvider
+from src.providers.mock import MockImageProvider, MockLLMProvider
 from src.providers.routes import (
-    BUILTIN_BY_ROUTE, RouteSpec, spec_from_custom,
+    BUILTIN_BY_ROUTE,
+    RouteSpec,
+    spec_from_custom,
 )
-from src.core.config import load_models_config, is_mock_mode
 
 # 已告警过的「覆盖键与 requires 不匹配」组合（避免每次 resolve 刷屏）
 _WARNED_OVERRIDE_MISMATCH: set[tuple[str, str]] = set()
@@ -142,7 +144,7 @@ class ProviderRegistry:
         base_url = self._resolve_spec_base_url(spec)
         if capability == "image":
             from src.providers.openai import OpenAIImageProvider
-            if spec.kind != "openai" or not "image" in spec.capabilities:
+            if spec.kind != "openai" or "image" not in spec.capabilities:
                 return None
             # 非官方端点剔除 DALL-E 专有参数，并显式要 URL 结果（火山方舟等）
             drop = () if spec.route == "openai" else ("quality",)

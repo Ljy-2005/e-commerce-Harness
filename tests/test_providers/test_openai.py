@@ -1,10 +1,9 @@
 """OpenAI Provider 单元测试 — Mock HTTP 层（不发起真实网络请求）"""
 
-import pytest
 import httpx as _httpx_module
+import pytest
 
-from src.providers.openai import OpenAILLMProvider, OpenAIImageProvider
-
+from src.providers.openai import OpenAIImageProvider, OpenAILLMProvider
 
 # ── 假 HTTP 层 ──
 

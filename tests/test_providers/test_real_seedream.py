@@ -10,7 +10,6 @@ import os
 import pytest
 
 import src.core.config  # noqa: F401  触发 secrets.yaml → env 注入
-
 from src.providers.seedream import SeedreamImageProvider
 
 _HAS_KEY = bool(

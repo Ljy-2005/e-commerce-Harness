@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from src.workflow.models import WorkflowJob, StepRecord, JobStatus, StepStatus
+from src.workflow.models import JobStatus, StepRecord, StepStatus, WorkflowJob
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (

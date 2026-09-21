@@ -1,8 +1,10 @@
 """execute_with_timeout 单元测试"""
 
 import asyncio
+
 import pytest
-from src.harness.timeout import execute_with_timeout, TimeoutError
+
+from src.harness.timeout import TimeoutError, execute_with_timeout
 
 
 async def _noop():

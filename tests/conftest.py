@@ -1,13 +1,12 @@
 """共享 fixtures"""
 
 import asyncio
+import base64
 import os
 import shutil
 from pathlib import Path
 
 import pytest
-import base64
-
 
 # ── P3 补缺：确定性 Mock 环境（test-plan §1.2「Mock First：无网、无 Key、确定性」）──
 #
@@ -105,7 +104,7 @@ def _restore_credential_env():
     except Exception:  # noqa: BLE001 — 配置读取失败也不能挡住测试
         pass
     try:
-        from src.providers import all_route_specs   # 注意：在包 __init__ 里，不在 routes
+        from src.providers import all_route_specs  # 注意：在包 __init__ 里，不在 routes
         for spec in all_route_specs().values():
             names |= set(spec.key_envs) | set(spec.all_key_envs)
     except Exception:  # noqa: BLE001
@@ -135,7 +134,6 @@ def _deterministic_mock_env(pytestconfig):
     # 顺序陷阱：src.core.config 导入时会执行 apply_runtime_secrets_to_env()
     # 把 secrets.yaml 的 Key 注入 env——必须先完成全部导入，再清 Key，
     # 最后重建注册表，否则重建出的注册表又带真实 Provider。
-    from src.providers import reset_provider_registry  # noqa: F401
     import src.main as main_mod
 
     # 静态清单不够：secrets.yaml 里可能存着**任意**变量名（自定义服务商的凭据、
@@ -144,6 +142,7 @@ def _deterministic_mock_env(pytestconfig):
     # ARK_API_KEY 让 test_no_keys_only_mock 误判 ark 可用）。
     # 这里以"secrets.yaml 的全部键 + 真正由部署环境提供的键"为准动态补全。
     from src.core.config import env_provided_secret_keys, load_runtime_secrets
+    from src.providers import reset_provider_registry  # noqa: F401
     leaked = set(env_provided_secret_keys()) | set(load_runtime_secrets()) | set(saved)
     saved = {k: saved.get(k) for k in leaked}
     for k in leaked:

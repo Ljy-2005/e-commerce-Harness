@@ -22,10 +22,9 @@
 
 import asyncio
 import time
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Optional
-from collections import Counter
-
 
 # ── 数据模型 ──
 

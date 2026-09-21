@@ -1,9 +1,10 @@
 """FastAPI 端点测试 — TestClient 覆盖所有核心 API"""
 
-import pytest
 import asyncio
+
 from fastapi.testclient import TestClient
-from src.main import app, _agent_registry, _provider_registry
+
+from src.main import _agent_registry, _provider_registry, app
 
 # 初始化 Agent registry（TestClient 不触发 lifespan）
 try:
@@ -89,6 +90,7 @@ class TestCreateSession:
         （回归防护：曾因 _FakeImage.base64_data 恒为空导致所有上传被 400 拒绝）
         """
         import io
+
         from PIL import Image
 
         buf = io.BytesIO()
@@ -165,7 +167,7 @@ class TestHumanDecision:
     def test_valid_actions_accepted_format(self):
         """approve/retry/reject 格式检查通过（但 session 不存在 → 404）"""
         for action in ("approve", "retry", "reject"):
-            resp = client.post(f"/api/sessions/fake/decision", data={"action": action})
+            resp = client.post("/api/sessions/fake/decision", data={"action": action})
             assert resp.status_code == 404  # 404 表示 action 格式通过了
 
 
@@ -257,6 +259,7 @@ class TestABTestEndpoint:
     def test_variant_caps_enforced(self):
         """审计修复：变体/评审数上限（防并行 LLM 费用 DoS）"""
         import io
+
         from PIL import Image
 
         buf = io.BytesIO()
@@ -308,14 +311,16 @@ class TestParseBatchCsv:
         assert items[0]["platform"] == "jd"
 
     def test_empty_csv_raises(self):
-        from src.main import _parse_batch_csv
         import pytest as _pytest
+
+        from src.main import _parse_batch_csv
         with _pytest.raises(ValueError, match="CSV 为空"):
             _parse_batch_csv(b"")
 
     def test_undecodable_raises(self):
-        from src.main import _parse_batch_csv
         import pytest as _pytest
+
+        from src.main import _parse_batch_csv
         with _pytest.raises(ValueError, match="编码无法识别"):
             _parse_batch_csv(b"\xff\xfe\xfd\xfc\xff")
 

@@ -1,6 +1,7 @@
 """ProductAnalystAgent 单元测试"""
 
 import pytest
+
 from src.agents.analyst import ProductAnalystAgent
 
 

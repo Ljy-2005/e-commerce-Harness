@@ -13,7 +13,6 @@
 import io
 from dataclasses import dataclass
 
-
 # ── 默认限制 ──
 
 DEFAULT_MAX_PIXELS = 2048      # 长边最大值（输出）

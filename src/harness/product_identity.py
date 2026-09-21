@@ -19,9 +19,8 @@
 本模块是纯函数（无 IO、无 Provider），便于测试与复用。
 """
 
-from typing import Any
-
 import re
+from typing import Any
 
 # 来源可信度：只有这两个算"已确认"
 CONFIRMED_SOURCES = ("vision", "user_confirmed")

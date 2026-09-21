@@ -157,7 +157,6 @@ class TestTextStrategy:
         assert "DEFOEBUENA" not in prompt
 
     async def test_no_reference_forces_blur(self, monkeypatch):
-        from src.core import config as cfg_mod
         provider = _FakeImage()
         agent = ImageGeneratorAgent(provider=provider)
         result = await agent.execute("生成", _session(images=[]))
@@ -167,7 +166,6 @@ class TestTextStrategy:
         assert any("降级为 blur" in note for note in result.get("image_notes", []))
 
     async def test_reference_mode_off_sends_no_reference(self):
-        from src.core.config import image_options as real_options
         provider = _FakeImage()
         agent = ImageGeneratorAgent(provider=provider)
         session = _session()

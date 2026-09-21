@@ -17,10 +17,10 @@ import hmac
 import os
 import time
 from collections import defaultdict
+
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
-
 
 # 白名单路径（无需鉴权；精确前缀匹配，防 /healthX 类假想路径放行）
 _PUBLIC_PREFIXES = ("/health", "/docs", "/redoc", "/openapi.json")

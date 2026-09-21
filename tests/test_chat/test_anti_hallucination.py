@@ -1,11 +1,12 @@
 """防幻觉 + 上下文压缩验证测试"""
 
 import pytest
+
 from src.agents.registry import AgentRegistry
-from src.chat.session import SessionManager
 from src.chat.engine import ChatEngine
-from src.providers import get_provider_registry
+from src.chat.session import SessionManager
 from src.harness.context_manager import ContextManager
+from src.providers import get_provider_registry
 
 
 @pytest.fixture

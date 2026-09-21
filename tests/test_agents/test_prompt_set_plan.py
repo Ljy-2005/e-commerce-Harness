@@ -7,11 +7,9 @@
 辛苦生成的 `scene_images`/`social_images` 全被丢掉。这里钉住新的数据契约与平台风格注入。
 """
 
-import pytest
 
 from src.agents.prompt_gen import PromptGeneratorAgent
 from src.harness.set_plan import normalize_set_plan, set_plan_coverage, set_plan_summary
-
 
 TAOBAO_PLAN = {
     "set_plan": {

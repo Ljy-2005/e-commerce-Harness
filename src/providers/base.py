@@ -1,7 +1,6 @@
 """Provider 抽象接口"""
 
 from abc import ABC, abstractmethod
-from typing import Literal
 
 
 def provider_error(label: str, resp, endpoint: str = "", secret: str = "",

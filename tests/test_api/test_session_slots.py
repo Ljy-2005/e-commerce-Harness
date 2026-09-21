@@ -12,7 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from src.main import app, _agent_registry, _provider_registry
+from src.main import _agent_registry, _provider_registry, app
 
 try:
     asyncio.get_event_loop().run_until_complete(

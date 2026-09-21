@@ -12,7 +12,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 import src.api.auth as auth_mod
-import src.api.main as main_mod
 import src.core.config as config_mod
 from src.main import app
 

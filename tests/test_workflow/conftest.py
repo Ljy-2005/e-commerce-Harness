@@ -6,17 +6,17 @@ import pytest
 
 from src.agents.registry import AgentRegistry
 from src.providers import get_provider_registry
+from src.workflow import templates
 from src.workflow.engine import WorkflowEngine
 from src.workflow.job_store import JobStore
-from src.workflow import templates
 
 
 @pytest.fixture(autouse=True)
 def _fast_rate_limiter(monkeypatch):
     """注入高额限流器，隔离全局 60rpm 限流对批量/并发测试的节流影响
     （限流器本身在 tests/test_harness/test_rate_limiter.py 有专门测试）"""
-    from src.harness.rate_limiter import RateLimiter
     import src.agents.base as agents_base
+    from src.harness.rate_limiter import RateLimiter
     monkeypatch.setattr(agents_base, "_rate_limiter", RateLimiter(default_rpm=100_000))
 
 

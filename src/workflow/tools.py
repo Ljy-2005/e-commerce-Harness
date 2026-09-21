@@ -1,7 +1,7 @@
 """Workflow 编排层 — 工具节点注册表（确定性操作）"""
 
 import base64
-from typing import Any, Callable, Awaitable
+from typing import Awaitable, Callable
 
 ToolFn = Callable[[dict], Awaitable[dict] | dict]
 

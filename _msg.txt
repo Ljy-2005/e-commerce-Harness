@@ -1,0 +1,23 @@
+style: 忽略 E501 并清理 ruff 报告（503 → 9）
+
+背景：pyproject 里 `ruff>=0.9` 未锁版本，CI 每次装最新版（本次 0.16.8），
+新版规则更严导致 CI 长期为红，共 503 条。
+
+配置：
+- `[tool.ruff.lint]` 增加 `ignore = ["E501"]` —— 本项目大量中文提示词、注释与
+  表格化字面量，按字符数硬折行反而降低可读性；行宽风险由 review 覆盖
+
+自动修复（196 条，ruff --fix 安全修复）：
+- I001 导入排序、F401 未使用导入、F841 未使用变量、
+  F541 无占位符 f-string、E713 成员测试写法
+
+手工修复：
+- src/agents/base.py、src/agents/registry.py：补 TYPE_CHECKING 导入块，
+  消除 11 条 F821 误报（注解写成字符串、运行时由函数内延迟导入以避免循环导入）
+- src/agents/coordinator.py：删除未使用的 messages_history
+- src/harness/context_manager.py：删除未使用的 role / sender
+- src/harness/output_pipeline.py：循环变量 field 遮蔽 dataclass field，改名 fld
+
+验证：全量 1664 例通过 —— 自动修复未破坏任何 monkeypatch 目标
+（已逐一核验被删的 noqa 导入：相关名字在文件内仍有独立导入或改用
+`__import__` 动态获取）。

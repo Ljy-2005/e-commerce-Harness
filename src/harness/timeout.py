@@ -1,7 +1,7 @@
 """超时控制 — asyncio.wait_for 包装"""
 
 import asyncio
-from typing import Coroutine, Any
+from typing import Any, Coroutine
 
 
 class TimeoutError(Exception):

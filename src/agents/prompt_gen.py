@@ -20,7 +20,7 @@
 
 from src.agents.base import BaseAgent
 from src.core.config import load_yaml
-from src.core.platforms import platform_style_block, resolve_platform
+from src.core.platforms import platform_style_block
 from src.harness.product_identity import identity_card_block, normalize_identity
 from src.harness.set_plan import finalize_prompts, set_plan_lines
 from src.harness.style_library import style_block_for

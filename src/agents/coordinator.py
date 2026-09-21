@@ -1,7 +1,6 @@
 """中心决策者 — LLM 驱动的群聊协调器"""
 
 from src.agents.base import BaseAgent
-from src.core.models import CoordinatorDecision, Message
 from src.core.config import load_yaml
 from src.core.logging_config import get_logger
 
@@ -173,7 +172,6 @@ class CoordinatorAgent(BaseAgent):
     async def _execute_impl(self, task_brief: str, session) -> dict:
         """根据群聊历史返回 CoordinatorDecision"""
         agent_list = self._build_agent_list()
-        messages_history = session.get("messages", [])
 
         # 构建 prompt
         st = self._state(session)

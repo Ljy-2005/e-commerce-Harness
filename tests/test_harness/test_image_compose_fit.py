@@ -62,7 +62,7 @@ class TestAdaptiveText:
         """极端放不下时允许截断，但**必须记账**（不静默丢字）"""
         from PIL import Image, ImageDraw
 
-        from src.harness.image_compose import _font, _draw_text
+        from src.harness.image_compose import _draw_text, _font
 
         draw = ImageDraw.Draw(Image.new("RGB", (600, 200), (255, 255, 255)))
         clipped: list[str] = []

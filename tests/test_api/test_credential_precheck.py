@@ -18,7 +18,7 @@ import src.api.main as main_mod
 import src.core.config as config_mod
 from src.core.tenant import TenantContext, get_tenant_registry
 from src.main import app
-from src.providers.mock import MockImageProvider, MockLLMProvider
+from src.providers.mock import MockImageProvider
 
 client = TestClient(app)
 TENANT_KEY = "tenant-a-key-0001-abcdef"

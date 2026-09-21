@@ -4,8 +4,8 @@
 JSON 模式解析、API 错误路径。
 """
 
-import pytest
 import httpx as _httpx_module
+import pytest
 
 from src.providers.deepseek import DeepSeekLLMProvider
 
