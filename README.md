@@ -482,7 +482,7 @@ python scripts/e2e_smoke.py # 7 场景端到端冒烟（自启 Mock 服务，跑
 | 指标 | 数值 |
 |------|------|
 | 后端测试 | **1,664 例通过**（`pytest -m "not real and not slow"`） |
-| 后端覆盖率 | **88%**（12,373 语句） |
+| 后端覆盖率 | **88.17%**（12,354 语句，基线 `docs/coverage_baseline.json`） |
 | 前端测试 | **313 例通过**（Vitest + React Testing Library，16 个文件） |
 | E2E 冒烟 | **7/7 场景** |
 | 后端代码 | 81 个模块 / 19,444 行 |
@@ -622,6 +622,7 @@ python scripts/check_secrets.py --history # 扫描全部提交历史
 
 | 文档 | 内容 |
 |------|------|
+| [`docs/architecture.md`](docs/architecture.md) | **架构总览**：分层、端到端数据流、跨模块契约、关键不变量、故障传播与兜底、已知边界与未完成项 |
 | [`docs/prd.md`](docs/prd.md) | 产品需求：问题、方案、用户故事、架构决策 |
 | [`docs/workflow-design.md`](docs/workflow-design.md) | 工作流编排层设计：DSL 规范、运行期模型、里程碑 |
 | [`docs/test-plan.md`](docs/test-plan.md) | 9 层测试体系与 P1–P6 实施记录 |
