@@ -30,7 +30,7 @@ Agent 3（提示词生成员）的输出。包含主图/场景图/社交图提�
 ```
 
 ### ReviewReport (`models.py`)
-Agent 5（审查员）的输出。5 维度加权评分 + pass/retry/fail 判定。
+Agent 5（审查员）的输出。6 维度加权评分 + pass/retry/fail 判定。
 
 ```
 字段: overall_score, dimension_scores{}, top_issues[], top_praises[],

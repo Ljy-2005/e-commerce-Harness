@@ -2,7 +2,7 @@ import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Responsi
 
 const LABELS = {
   texture: '质感', lighting: '光影', composition: '构图',
-  product_fidelity: '商品还原', platform_fit: '平台适配'
+  product_fidelity: '商品还原', platform_fit: '平台适配', realism: '画面真实感'
 }
 
 export default function ReviewChart({ review, loading }) {
@@ -31,7 +31,7 @@ export default function ReviewChart({ review, loading }) {
         <div className="empty-state" style={{minHeight: 160}}>
           <p className="text-lg mb-1">📊</p>
           <p className="text-sm">暂无审查数据</p>
-          <p className="text-xs mt-1">Agent 群聊完成后，审查员会给出 5 维度评分</p>
+          <p className="text-xs mt-1">Agent 群聊完成后，审查员会给出 6 维度评分</p>
         </div>
       </div>
     )

@@ -46,7 +46,7 @@ nodes:
   review:
     type: agent
     agent: 审查员
-    task: 按 5 维度审查生成图片质量
+    task: 按 6 维度审查生成图片质量
   branch:
     type: condition
     rules:

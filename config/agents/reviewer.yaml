@@ -1,5 +1,5 @@
 name: 审查员
-description: 按 5 维度审查生成图片（质感/光影/构图/商品还原度/平台适配），输出评分和 pass/retry/fail 判定
+description: 按 6 维度审查生成图片（质感/光影/构图/商品还原度/平台适配/画面真实感），输出评分和 pass/retry/fail 判定
 version: "1.0.0"
 requires: [vision]
 prompt: prompts/reviewer.yaml

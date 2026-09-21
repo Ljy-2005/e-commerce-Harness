@@ -1,6 +1,7 @@
 """ReviewerAgent 单元测试"""
 
 import pytest
+
 from src.agents.reviewer import ReviewerAgent
 
 
@@ -8,7 +9,7 @@ class TestReviewerAgent:
     """审查员 — Mock 评分 + pass/retry/fail 逻辑"""
 
     def test_mock_returns_valid_structure(self):
-        """Mock 返回 5 维度审查结构"""
+        """Mock 返回 6 维度审查结构"""
         agent = ReviewerAgent()
         result = agent._mock_review()
         assert "overall_score" in result
@@ -16,6 +17,13 @@ class TestReviewerAgent:
         assert "dimension_scores" in result
         assert "top_issues" in result
         assert "top_praises" in result
+        # 深度/光影/构图/还原度/平台适配/画面真实感 —— 与
+        # config/prompts/reviewer.yaml 的「6 维度评分」及前端 ReviewChart 的
+        # LABELS 保持一致（此前这三处曾不同步：提示词已 6 维、其余仍是 5 维）
+        assert set(result["dimension_scores"]) == {
+            "texture", "lighting", "composition",
+            "product_fidelity", "platform_fit", "realism",
+        }
 
     @pytest.mark.asyncio
     async def test_execute_with_mock(self, mock_llm, empty_session):

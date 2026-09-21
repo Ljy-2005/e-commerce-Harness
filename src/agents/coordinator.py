@@ -255,7 +255,7 @@ class CoordinatorAgent(BaseAgent):
                 {"action": "invite", "agent_name": "图像后处理员",
                  "task_brief": "对生成图片进行去背景和增强处理"},
                 {"action": "invite", "agent_name": "审查员",
-                 "task_brief": "按 5 维度审查生成图片的质量"},
+                 "task_brief": "按 6 维度审查生成图片的质量"},
                 {"action": "invite", "agent_name": "合规审查员",
                  "task_brief": "检查图片是否符合广告法和平台规范"},
                 {"action": "done", "agent_name": "", "task_brief": "所有产出物已就绪，任务完成"},

@@ -37,7 +37,7 @@ nodes:
   review:
     type: agent
     agent: 审查员
-    task: 按 5 维度审查图片质量
+    task: 按 6 维度审查图片质量
   human_approval:
     type: human
     prompt: 请人工确认图片质量（SLA 超时按评分矩阵自动决策）

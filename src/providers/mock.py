@@ -206,6 +206,7 @@ MOCK_REVIEW = {
         "composition": 82.0,
         "product_fidelity": 88.0,
         "platform_fit": 75.0,
+        "realism": 86.0,
     },
     "top_issues": ["背景不够纯净，有轻微色偏", "社交图缺少品牌 Logo"],
     "top_praises": ["产品质感表现优秀", "植物元素搭配自然", "合规标注完整"],
@@ -275,7 +276,7 @@ MOCK_COORDINATOR_WORKFLOW = [    {"action": "invite", "agent_name": "商品分�
     {"action": "invite", "agent_name": "提示词生成员", "task_brief": "基于分析结果，生成淘宝平台的完整提示词（主图+场景图+社交图）"},
     {"action": "invite", "agent_name": "生图员", "task_brief": "使用主图提示词生成 3 张商品图片"},
     {"action": "invite", "agent_name": "图像后处理员", "task_brief": "对生成图片进行去背景处理"},
-    {"action": "invite", "agent_name": "审查员", "task_brief": "按 5 维度审查生成图片的质量"},
+    {"action": "invite", "agent_name": "审查员", "task_brief": "按 6 维度审查生成图片的质量"},
     {"action": "invite", "agent_name": "合规审查员", "task_brief": "检查图片是否符合广告法和淘宝平台规范"},
     {"action": "done", "agent_name": "", "task_brief": "所有产出物就绪"},
 ]

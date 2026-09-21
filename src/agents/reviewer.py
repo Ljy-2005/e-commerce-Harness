@@ -1,4 +1,4 @@
-"""审查员 — 5 维度质量评分（以用户上传的真实商品图为基准）
+"""审查员 — 6 维度质量评分（以用户上传的真实商品图为基准）
 
 实测事故：审查员此前**只收到生成图**，没有原图 —— "商品还原度"这个维度没有比对基准，
 只能靠常识猜（那次猜中了被臆造的 `NUTRIVA®`，但不可靠）。
@@ -19,9 +19,40 @@ from src.harness.product_identity import identity_card_block, normalize_identity
 REVIEW_BATCH_SIZE = 3
 REVIEW_MAX_BATCHES = 4          # ≤12 张；再多就记账说明（避免 vision 调用无限增长）
 
+# 兜底审查提示词：`config/prompts/reviewer.yaml` 读不到时使用。
+# 必须自带**评分锚点与判定规则** —— 只列维度名的话，审查员拿不到评分标准，
+# 打出来的分会变成凭感觉（改前就是这样：一行 5 维度名 + 无任何阈值）。
+REVIEW_FALLBACK_PROMPT = """你是专业的电商图片审查专家。图片的评判标准是**品牌视觉设计感**，
+不是"够不够写实"——不要因为"背景不是真实场景"扣分，要因为"画面平淡、像随手拍、配色杂乱、
+没有视觉重心、留白不足"扣分。
+
+## 6 维度评分（每项 0–100）
+1. 质感 (Texture)：材质表现是否可信，边缘是否干净
+2. 光影 (Lighting)：光位与光质是否讲究，投影是否干净
+3. 构图 (Composition)：视觉重心是否明确、主体占比与留白是否有节奏
+4. 商品还原度 (Product Fidelity)：是否准确还原商品特征（形状/颜色/文字）
+5. 平台适配 (Platform Fit)：是否符合目标平台的规范与调性
+6. 画面真实感 (Realism)：是否像"精修商业图"而不是"AI 图"（AI 塑料感、过饱和、
+   HDR 味、过度锐化、伪影、糊字、融化变形都要扣分）
+
+## 评分锚点
+- 90–100：像品牌官方主图，一眼"正规、有档次"，可直接上架
+- 75–89：干净商业图，能用
+- 60–74：平淡、模板感、像随手拍 → 需要改进
+- < 60：廉价感／明显 AI 感／商品还原出错 → 不合格
+
+## 判定规则
+- overall_score >= 75：pass
+- overall_score < 75：retry
+- 商品关键特征（文字/标志）错误：fail
+
+输出 JSON：{"overall_score": 0, "dimension_scores": {"texture": 0, "lighting": 0,
+"composition": 0, "product_fidelity": 0, "platform_fit": 0, "realism": 0},
+"top_issues": [], "top_praises": [], "verdict": "pass|retry|fail"}"""
+
 
 class ReviewerAgent(BaseAgent):
-    """使用 Vision 能力，按 5 维度审查生成图片"""
+    """使用 Vision 能力，按 6 维度审查生成图片"""
 
     meta_name = "审查员"
     timeout_ms = 300_000
@@ -48,11 +79,11 @@ class ReviewerAgent(BaseAgent):
             reason = "未找到任何可用的生成图"
             return {
                 "error": f"NO_IMAGE_ACCESSIBLE: {reason}",
-                "message": "本次审查未收到任何可访问的生成图，无法进行 5 维度评分。",
+                "message": "本次审查未收到任何可访问的生成图，无法进行 6 维度评分。",
                 "overall_score": None,
                 "dimension_scores": {"texture": None, "lighting": None,
                                      "composition": None, "product_fidelity": None,
-                                     "platform_fit": None},
+                                     "platform_fit": None, "realism": None},
                 "top_issues": [f"图像不可用：{reason}"],
                 "top_praises": [],
                 "verdict": "retry",
@@ -247,6 +278,6 @@ class ReviewerAgent(BaseAgent):
     def _load_prompt(self, path: str) -> str:
         try:
             cfg = load_yaml(path)
-            return cfg.get("system", "你是专业的电商图片审查专家。")
+            return cfg.get("system", REVIEW_FALLBACK_PROMPT)
         except Exception:
-            return "你是专业的电商图片审查专家。按 5 维度（质感/光影/构图/商品还原度/平台适配）评分。"
+            return REVIEW_FALLBACK_PROMPT
